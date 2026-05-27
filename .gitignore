@@ -20,6 +20,9 @@ Thumbs.db
 # Claude/AI tool state
 .claude/
 
+# Release build artifacts
+release/
+
 # Test artifacts
 *.o
 *.so

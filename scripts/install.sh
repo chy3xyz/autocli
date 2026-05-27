@@ -1,130 +1,102 @@
 #!/bin/sh
-# autocli installer — detects OS/Arch and downloads the right binary
-# Usage: curl -fsSL https://raw.githubusercontent.com/nashsu/autocli/main/scripts/install.sh | sh
+# AutoCLI installer — build from source (requires Zig 0.17.0+)
+# Usage: curl -fsSL https://raw.githubusercontent.com/chy3xyz/autocli/main/scripts/install.sh | sh
+#
+# Options:
+#   AUTOCLI_INSTALL_DIR  — install directory (default: /usr/local/bin)
+#   AUTOCLI_VERSION      — tag to install (default: latest)
 
 set -e
 
-REPO="nashsu/autocli"
-INSTALL_DIR="/usr/local/bin"
+REPO="chy3xyz/autocli"
+INSTALL_DIR="${AUTOCLI_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="autocli"
 
-# Colors
+# ── Colors ──────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-info() { printf "${CYAN}$1${NC}\n"; }
-success() { printf "${GREEN}$1${NC}\n"; }
-error() { printf "${RED}Error: $1${NC}\n" >&2; exit 1; }
+info()    { printf "${CYAN}▸${NC} %s\n" "$1"; }
+success() { printf "${GREEN}✓${NC} %s\n" "$1"; }
+warn()    { printf "${YELLOW}!${NC} %s\n" "$1"; }
+error()   { printf "${RED}✗ Error:${NC} %s\n" "$1" >&2; exit 1; }
 
-# Detect OS
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-case "$OS" in
-    linux*)  OS="unknown-linux-musl" ;;
-    darwin*) OS="apple-darwin" ;;
-    mingw*|msys*|cygwin*) OS="pc-windows-msvc" ;;
-    *) error "Unsupported OS: $OS" ;;
+# ── Preflight checks ───────────────────────────────────────────────
+for cmd in git curl; do
+    command -v "$cmd" >/dev/null 2>&1 || error "$cmd is required but not found."
+done
+
+# Check Zig
+if ! command -v zig >/dev/null 2>&1; then
+    error "Zig is required. Install from https://ziglang.org/download/
+  macOS:   brew install zig
+  Linux:   snap install zig --classic
+  Manual:  https://ziglang.org/download/#release-0.17.0"
+fi
+
+ZIG_VERSION=$(zig version 2>/dev/null || echo "unknown")
+case "$ZIG_VERSION" in
+    0.17.*) ;;
+    *)
+        warn "Zig $ZIG_VERSION detected — 0.17.0 is recommended."
+        warn "Proceeding anyway, but build may fail."
+        ;;
 esac
 
-# Detect Arch
-ARCH=$(uname -m)
-case "$ARCH" in
-    x86_64|amd64)  ARCH="x86_64" ;;
-    aarch64|arm64) ARCH="aarch64" ;;
-    *) error "Unsupported architecture: $ARCH" ;;
-esac
+# ── Clone / update repo ────────────────────────────────────────────
+BUILD_DIR="${TMPDIR:-/tmp}/autocli-build-$$"
+trap 'rm -rf "$BUILD_DIR"' EXIT
 
-TARGET="${ARCH}-${OS}"
+VERSION="${AUTOCLI_VERSION:-latest}"
 
-# Get latest version (via redirect, avoids API rate limit)
-info "Detecting latest version..."
-VERSION=$(curl -fsSI "https://github.com/${REPO}/releases/latest" | grep -i "location:" | sed -E 's/.*\/tag\/(.*)/\1/' | tr -d '\r\n')
-if [ -z "$VERSION" ]; then
-    error "Could not detect latest version. Check https://github.com/${REPO}/releases"
-fi
-info "Latest version: ${VERSION}"
-
-# Determine archive format
-if echo "$OS" | grep -q "windows"; then
-    EXT="zip"
-    ARCHIVE="${BINARY_NAME}-${TARGET}.zip"
+if [ "$VERSION" = "latest" ]; then
+    info "Cloning latest from https://github.com/${REPO}.git ..."
+    git clone --depth 1 "https://github.com/${REPO}.git" "$BUILD_DIR" 2>/dev/null
 else
-    EXT="tar.gz"
-    ARCHIVE="${BINARY_NAME}-${TARGET}.tar.gz"
+    info "Cloning tag ${VERSION} from https://github.com/${REPO}.git ..."
+    git clone --depth 1 --branch "$VERSION" "https://github.com/${REPO}.git" "$BUILD_DIR" 2>/dev/null
 fi
 
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+cd "$BUILD_DIR"
 
-# Download
-info "Downloading ${ARCHIVE}..."
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+# ── Build ──────────────────────────────────────────────────────────
+info "Building with Zig ${ZIG_VERSION} ..."
+zig build -Doptimize=ReleaseSafe 2>&1 | tail -5
 
-if ! curl -fsSL "$URL" -o "${TMPDIR}/${ARCHIVE}"; then
-    error "Download failed. Binary may not exist for ${TARGET}.\nCheck: https://github.com/${REPO}/releases/tag/${VERSION}"
+if [ ! -f "zig-out/bin/${BINARY_NAME}" ]; then
+    error "Build failed — binary not found at zig-out/bin/${BINARY_NAME}"
 fi
 
-# Extract
-info "Extracting..."
-cd "$TMPDIR"
-if [ "$EXT" = "zip" ]; then
-    unzip -q "$ARCHIVE"
-else
-    tar xzf "$ARCHIVE"
-fi
+# ── Install ────────────────────────────────────────────────────────
+info "Installing to ${INSTALL_DIR}/${BINARY_NAME} ..."
+mkdir -p "$INSTALL_DIR"
 
-# Install
 if [ -w "$INSTALL_DIR" ]; then
-    mv "$BINARY_NAME" "$INSTALL_DIR/"
+    cp "zig-out/bin/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 else
-    info "Installing to ${INSTALL_DIR} (requires sudo)..."
-    sudo mv "$BINARY_NAME" "$INSTALL_DIR/"
+    info "(requires sudo for ${INSTALL_DIR})"
+    sudo cp "zig-out/bin/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 fi
 
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-# Migrate from .opencli-rs to .autocli
-OLD_CONFIG="$HOME/.opencli-rs"
-NEW_CONFIG="$HOME/.autocli"
-if [ -d "$OLD_CONFIG" ]; then
-    if [ -d "$NEW_CONFIG" ]; then
-        info "Both ~/.opencli-rs and ~/.autocli exist, merging..."
-        cp -rn "$OLD_CONFIG/"* "$NEW_CONFIG/" 2>/dev/null || true
-    else
-        info "Migrating ~/.opencli-rs to ~/.autocli..."
-        cp -r "$OLD_CONFIG" "$NEW_CONFIG"
-    fi
-    rm -rf "$OLD_CONFIG"
-    success "✓ Migrated config from ~/.opencli-rs to ~/.autocli"
-fi
-
-# Remove old binary if exists
-if command -v "opencli-rs" >/dev/null 2>&1; then
-    OLD_BIN=$(command -v "opencli-rs")
-    info "Removing old binary: ${OLD_BIN}"
-    rm -f "$OLD_BIN" 2>/dev/null || sudo rm -f "$OLD_BIN" 2>/dev/null || true
-fi
-
-# Kill old daemon and start new one
-DAEMON_PORT=19825
-if lsof -ti tcp:${DAEMON_PORT} >/dev/null 2>&1; then
-    info "Stopping old daemon on port ${DAEMON_PORT}..."
-    lsof -ti tcp:${DAEMON_PORT} | xargs kill -9 2>/dev/null || true
-    sleep 1
-fi
-info "Starting new daemon..."
-"${INSTALL_DIR}/${BINARY_NAME}" --version >/dev/null 2>&1 || true
-
-# Verify
+# ── Verify ─────────────────────────────────────────────────────────
 if command -v "$BINARY_NAME" >/dev/null 2>&1; then
-    INSTALLED_VERSION=$("$BINARY_NAME" --version 2>/dev/null || echo "unknown")
-    success "✓ ${BINARY_NAME} installed successfully! (${INSTALLED_VERSION})"
-    echo ""
-    echo "  Get started:"
-    echo "    ${BINARY_NAME} --help"
-    echo "    ${BINARY_NAME} hackernews top --limit 5"
+    INSTALLED=$("$BINARY_NAME" --version 2>/dev/null || echo "installed")
+    success "${BOLD}${BINARY_NAME}${NC} installed! (${INSTALLED})"
 else
-    success "✓ Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-    echo "  Make sure ${INSTALL_DIR} is in your PATH."
+    success "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
+    warn "Make sure ${INSTALL_DIR} is in your PATH."
 fi
+
+echo ""
+echo "  Get started:"
+echo "    ${BINARY_NAME} --help          # Show usage"
+echo "    ${BINARY_NAME} list             # List all 333+ commands"
+echo "    ${BINARY_NAME} hackernews front # Fetch HN front page"
+echo "    ${BINARY_NAME} doctor           # Check environment"
+echo ""
