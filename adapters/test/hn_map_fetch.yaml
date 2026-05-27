@@ -1,0 +1,16 @@
+site: test
+name: hn_map_fetch
+description: HN map then fetch single
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/topstories.json
+  - limit: 1
+  - map:
+      id: "${{ item }}"
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/item/${{ item.id }}.json
+
+columns: [title, score]

@@ -1,0 +1,14 @@
+site: test
+name: hn_args
+description: HN with args
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/topstories.json
+  - limit: ${{ args.limit }}
+  - map:
+      id: "${{ item }}"
+
+columns: [id]

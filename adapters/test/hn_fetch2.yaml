@@ -1,0 +1,11 @@
+site: test
+name: hn_fetch2
+description: HN with second fetch
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/item/47840219.json
+
+columns: [title, score, by]

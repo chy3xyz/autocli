@@ -1,0 +1,16 @@
+# Adapter logic derived from OpenCLI (https://github.com/jackwener/opencli)
+# Original author: jackwener | License: Apache-2.0
+site: chatgpt
+name: read
+description: Read the last visible message from the focused ChatGPT Desktop window
+domain: localhost
+strategy: public
+browser: false
+
+columns: [Role, Text]
+
+pipeline:
+  - evaluate: |
+      (function() {
+        return [{ Role: 'System', Text: 'ChatGPT desktop read requires native macOS AX API. Use the TypeScript adapter for full functionality.' }];
+      })()

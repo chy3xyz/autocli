@@ -1,0 +1,14 @@
+site: test
+name: hn_map_test
+description: HN map test
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/topstories.json
+  - limit: 3
+  - map:
+      id: "${{ item }}"
+
+columns: [id]

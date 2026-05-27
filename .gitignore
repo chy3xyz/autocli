@@ -1,0 +1,26 @@
+# Zig build artifacts
+.zig-cache/
+zig-out/
+
+# Node
+extension/node_modules/
+extension/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude/AI tool state
+.claude/
+
+# Test artifacts
+*.o
+*.so
+*.dylib

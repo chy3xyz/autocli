@@ -1,0 +1,11 @@
+site: test
+name: headers
+description: Test HTTP headers
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: http://httpbin.org/headers
+
+columns: [headers]

@@ -1,0 +1,16 @@
+site: test
+name: hn_multi
+description: HN multi-step pipeline
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/topstories.json
+  - limit: 3
+  - map:
+      id: "${{ item }}"
+  - fetch:
+      url: https://hacker-news.firebaseio.com/v0/item/${{ item.id }}.json
+
+columns: [title, score]

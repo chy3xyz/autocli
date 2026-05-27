@@ -1,0 +1,11 @@
+site: test
+name: api
+description: Test API
+strategy: public
+browser: false
+
+pipeline:
+  - fetch:
+      url: http://jsonplaceholder.typicode.com/posts?_limit=5
+
+columns: [id, title]
