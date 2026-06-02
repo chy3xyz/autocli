@@ -49,7 +49,7 @@ Four registration functions:
 |----------|-------|----------|
 | `registerFetchSteps()` | `fetch` | No |
 | `registerTransformSteps()` | `select`, `map`, `filter`, `sort`, `limit` | No |
-| `registerBrowserSteps()` | `navigate`, `evaluate`, `click`, `type`, `wait` | Yes |
+| `registerBrowserSteps()` | `navigate`, `evaluate`, `click`, `type`, `wait`, `press`, `snapshot`, `screenshot`, `scroll`, `tap`, `intercept`, `collect` | Yes |
 | `registerDownloadSteps()` | `download` | No |
 
 ## Step Types
@@ -138,6 +138,78 @@ Executes JavaScript in the page context.
     text: "Loading complete" # wait for text
 ```
 
+#### `press`
+
+Dispatch keyboard events on the page.
+
+```yaml
+- press: Enter
+- press: Escape
+- press: ArrowDown
+```
+
+#### `snapshot`
+
+Capture the accessibility tree of the page (or a subset via selector). Returns JSON.
+
+```yaml
+- snapshot                 # full page A11y tree
+- snapshot:
+    selector: ".main"      # scope to element
+    include_hidden: false
+```
+
+#### `screenshot`
+
+Capture a screenshot. Returns base64-encoded PNG string.
+
+```yaml
+- screenshot                          # viewport screenshot
+- screenshot:
+    full_page: true                   # full page
+    selector: ".chart"                # element only
+    path: "/tmp/shot.png"            # save to file
+```
+
+#### `scroll`
+
+Auto-scroll the page to trigger lazy loading. Defaults to 3 scrolls.
+
+```yaml
+- scroll: 5               # scroll 5 times
+- scroll                  # default: 3 scrolls, 300ms delay
+```
+
+#### `tap`
+
+Invoke a Pinia/Vuex store action and intercept the resulting API response. Used for SPAs where data comes from internal state management, not the DOM.
+
+```yaml
+- tap:
+    store: userStore       # Pinia store name
+    action: fetchItems     # store action to call
+    capture: "/api/"       # URL pattern to capture
+```
+
+#### `intercept`
+
+Set up network request interception pattern.
+
+```yaml
+- intercept:
+    url_pattern: "https://api.example.com/graphql"
+```
+
+#### `collect`
+
+Retrieve intercepted network requests. Optionally apply a JS parse function.
+
+```yaml
+- collect                          # raw intercepted data
+- collect:
+    parse: "data.map(r => JSON.parse(r.body))"
+```
+
 ### Transform Steps
 
 All transform steps operate on in-memory JSON data. No network or browser access.
@@ -193,6 +265,8 @@ Limits result count.
 - limit: 10
 - limit: "${{ args.limit }}"
 ```
+
+
 
 ### Download Steps
 
@@ -273,4 +347,4 @@ Browser steps retry up to 3 times on failure (configurable via `MAX_BROWSER_ATTE
 
 ## Timeout
 
-Global pipeline timeout defaults to 120 seconds (`DEFAULT_TIMEOUT_MS`). Configurable via `OPENCLI_BROWSER_COMMAND_TIMEOUT` environment variable (in seconds). Checked before each step execution.
+Global pipeline timeout defaults to 120 seconds (`DEFAULT_TIMEOUT_MS`). Configurable via `AUTOCLI_BROWSER_COMMAND_TIMEOUT` or `OPENCLI_BROWSER_COMMAND_TIMEOUT` environment variable (in seconds). Checked before each step execution.

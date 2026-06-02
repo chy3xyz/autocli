@@ -9,7 +9,7 @@
 | Category | Status | Notes |
 |----------|--------|-------|
 | **Core** | ✅ Complete | CliCommand, IPage, CliError, Strategy, ArgDef, Registry |
-| **Pipeline** | ✅ Complete | 14 step types, executor, metrics, timeout, retry |
+| **Pipeline** | ✅ Complete | 19 step types (7 transform/HTTP/download + 12 browser), executor, metrics, timeout, retry |
 | **Template** | ✅ Complete | Pratt parser, 16 filters, template context |
 | **Browser** | ✅ Complete | Daemon, DaemonPage, CdpPage, SandboxPage, BrowserBridge |
 | **Output** | ✅ Complete | table, JSON, YAML, CSV, Markdown |

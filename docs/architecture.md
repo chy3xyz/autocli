@@ -163,15 +163,15 @@ pub const CliError = error{
 ## Data Flow Example
 
 ```
-$ autocli hackernews front --format json
+$ autocli hackernews top --format json
 
-1. main.zig: parse args → site="hackernews", command="front"
-2. discovery: find adapter → adapters/hackernews/front.yaml
-3. yaml.zig: parse YAML → CliCommand{ strategy=.public, pipeline=[fetch, evaluate, select] }
-4. executor: create StepRegistry, register fetch/transform/browser steps
-5. Step 0 (fetch): GET https://news.ycombinator.com → HTML string
-6. Step 1 (evaluate): sandbox parse JS expression → JSON array of objects
-7. Step 2 (select): traverse "data" path → filtered array
+1. main.zig: parse args → site="hackernews", command="top"
+2. discovery: find adapter → adapters/hackernews/top.yaml
+3. yaml.zig: parse YAML → CliCommand{ strategy=.public, pipeline=[fetch, select, map] }
+4. executor: create StepRegistry, register fetch/transform steps (no browser)
+5. Step 0 (fetch): GET https://hacker-news.firebaseio.com/v0/topstories → JSON
+6. Step 1 (select): extract "data" path → JSON array
+7. Step 2 (map): transform each item → {title, url, points, author}
 8. output: render as JSON → stdout
 ```
 
@@ -188,10 +188,7 @@ $ autocli hackernews front --format json
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTOCLI_VERBOSE` | (unset) | Enable verbose logging |
+| `AUTOCLI_VERBOSE` | (unset) | Enable verbose logging (also `OPENCLI_VERBOSE`) |
 | `AUTOCLI_DAEMON_PORT` | `19825` | Daemon HTTP+WebSocket port |
 | `OPENCLI_DAEMON_PORT` | `19825` | Legacy alias |
-| `OPENCLI_CDP_ENDPOINT` | (unset) | Direct CDP WebSocket URL (bypass daemon) |
-| `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | Per-command timeout in seconds |
-| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `30` | Browser connection timeout |
-| `OPENCLI_BROWSER_EXPLORE_TIMEOUT` | `120` | AI explore timeout |
+| `AUTOCLI_BROWSER_COMMAND_TIMEOUT` | `120` | Per-command timeout in seconds (also `OPENCLI_BROWSER_COMMAND_TIMEOUT`) |

@@ -46,12 +46,12 @@ autocli --help
 
 ### `completion`
 
-Generate shell completions.
+Generate shell completions (defaults to bash).
 
 ```bash
-autocli completion bash   # Bash completions
-autocli completion zsh    # Zsh completions
-autocli completion fish   # Fish completions
+autocli completion                    # Bash completions
+autocli completion --shell zsh       # Zsh completions
+autocli completion --shell fish      # Fish completions
 ```
 
 ### `search`
@@ -65,22 +65,25 @@ autocli search "video download"
 
 ### `auth`
 
-Manage authentication tokens.
+Manage AI authentication token.
 
 ```bash
-autocli auth status               # Show auth status
-autocli auth set <site> <token>   # Set a token
-autocli auth remove <site>        # Remove a token
+autocli auth                    # Show current token (masked)
+autocli auth <token>            # Set AI API token
 ```
 
-Tokens are stored in `~/.autocli/config.json`.
+Token is stored in `~/.autocli/config.json`.
 
 ### `read`
 
-Read an adapter file and display its parsed structure.
+Extract article content from a URL using Chrome CDP. Renders as markdown by default.
 
 ```bash
-autocli read hackernews front
+autocli read https://example.com/article
+autocli read https://example.com/article format=text    # plain text
+autocli read https://example.com/article format=json    # structured JSON
+autocli read https://example.com/article format=html    # raw HTML content
+autocli read https://example.com/article output=article.md  # save to file
 ```
 
 ### `generate`
@@ -103,6 +106,7 @@ autocli generate https://example.com
 | `--verbose` | | Enable verbose logging (or set `AUTOCLI_VERBOSE=1`) |
 | `--sandbox` | | Use mock browser (no real browser needed) |
 | `--step` | | Interactive step-by-step pipeline execution |
+| `--daemon` | | Start browser bridge daemon on port 19825 |
 
 ## Daemon Mode
 

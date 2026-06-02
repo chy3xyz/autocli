@@ -38,7 +38,7 @@ src/
 ├── main.zig              Entry point, arg parsing, signal handling, command routing
 ├── core/                 Shared types: CliCommand, IPage, CliError, Strategy, ArgDef
 ├── pipeline/             Step execution engine + template expression engine
-│   ├── steps/            14 step type implementations
+│   ├── steps/            19 step type implementations
 │   └── template/         ${{ expression | filter }} Pratt parser + 16 filters
 ├── browser/              Browser bridge: Daemon, DaemonPage, CdpPage, SandboxPage
 ├── output/               5 renderers: table, JSON, YAML, CSV, Markdown
@@ -57,7 +57,8 @@ main.zig
  │   ├── core
  │   ├── external
  │   ├── ai
- │   └── discovery
+ │   ├── discovery
+ │   └── browser
  ├── pipeline      (step execution)
  │   ├── core
  │   └── template
@@ -67,8 +68,12 @@ main.zig
  │   └── core
  ├── discovery     (adapter loading)
  │   └── core
- └── external      (CLI passthrough)
-     └── core
+ ├── external      (CLI passthrough)
+ │   └── core
+ └── ai            (AI explore/generate)
+     ├── core
+     ├── browser
+     └── pipeline
 ```
 
 All modules depend on `core`. No circular dependencies.
@@ -243,22 +248,27 @@ Four registration functions:
 |----------|-----------------|
 | `registerFetchSteps()` | `fetch` |
 | `registerTransformSteps()` | `select`, `map`, `filter`, `sort`, `limit` |
-| `registerBrowserSteps()` | `navigate`, `evaluate`, `click`, `type`, `wait` |
+| `registerBrowserSteps()` | `navigate`, `evaluate`, `click`, `type`, `wait`, `press`, `snapshot`, `screenshot`, `scroll`, `tap`, `intercept`, `collect` |
 | `registerDownloadSteps()` | `download` |
 
-### 4.3 Step Types (14)
+### 4.3 Step Types (19)
 
 **HTTP:**
 - `fetch` — GET/POST with headers, body, query params. Supports cookie/header auth.
 
-**Browser (require IPage):**
+**Browser (require IPage):** 12 steps
 - `navigate` — URL navigation with settle time
-- `evaluate` — JavaScript evaluation in page context
+- `evaluate` — JavaScript evaluation in page context (injects `args`/`data` variables)
 - `click` — CSS selector click
 - `type` — Text input into form fields
 - `wait` — Wait by time, selector, or text
-- `intercept` — Network request interception
-- `tap` — State management bridge
+- `press` — Dispatch keyboard event (Enter, Escape, etc.)
+- `snapshot` — Accessibility tree capture (optional selector filter)
+- `screenshot` — Viewport/full-page/element screenshot → base64 PNG
+- `scroll` — Auto-scroll page (lazy loading trigger)
+- `tap` — Pinia store action invocation with API response capture
+- `intercept` — Network request interception setup
+- `collect` — Retrieve intercepted requests with optional JS parse
 
 **Transform (in-memory, no I/O):**
 - `select` — Dot-path data extraction (clones result)

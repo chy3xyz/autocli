@@ -163,7 +163,7 @@ All browser operations happen in dedicated Chrome windows, isolated from the use
 
 ## IPage Interface
 
-The `IPage` vtable defines 19 methods:
+The `IPage` vtable defines 21 methods:
 
 ```zig
 pub const IPage = struct {
@@ -171,44 +171,44 @@ pub const IPage = struct {
     vtable: *const VTable,
 
     // Navigation
-    fn goto(self, url, options)      // Navigate to URL
-    fn url(self)                      // Get current URL
-    fn title(self)                    // Get page title
-    fn content(self)                  // Get page HTML
+    fn goto(self, url, options)          // Navigate to URL
+    fn url(self)                         // Get current URL (returns allocated string)
+    fn title(self)                       // Get page title (returns allocated string)
+    fn content(self)                     // Get full page HTML (returns allocated string)
 
     // JavaScript
-    fn evaluate(self, expression)     // Evaluate JS, return json.Value
+    fn evaluate(self, expression)        // Evaluate JS, return json.Value
 
     // Interaction
-    fn click(self, selector)          // Click element
-    fn type_text(self, selector, text) // Type into input
+    fn click(self, selector)             // Click element by selector
+    fn type_text(self, selector, text)   // Type text into input
 
     // Waiting
-    fn wait_for_selector(self, selector, options)
-    fn wait_for_navigation(self, options)
-    fn wait_for_timeout(self, ms)
+    fn wait_for_selector(self, selector, options)  // Wait for element to appear
+    fn wait_for_navigation(self, options)          // Wait for page navigation
+    fn wait_for_timeout(self, ms)                  // Wait for milliseconds
 
     // Cookies
-    fn cookies(self, options)         // Get cookies
-    fn set_cookies(self, cookies)     // Set cookies
+    fn cookies(self, options)            // Get cookies (optionally filter by name/domain)
+    fn set_cookies(self, cookies)        // Set cookies
 
     // Capture
-    fn screenshot(self, options)      // Base64 image
-    fn snapshot(self, options)        // Accessibility tree
+    fn screenshot(self, options)         // Capture screenshot → base64 PNG bytes
+    fn snapshot(self, options)           // Capture accessibility tree → json.Value
 
     // Tabs
-    fn tabs(self)                     // List tabs
-    fn switch_tab(self, tab_id)       // Switch to tab
+    fn tabs(self)                        // List all browser tabs
+    fn switch_tab(self, tab_id)          // Switch to tab by ID
 
     // Scrolling
-    fn auto_scroll(self, options)     // Auto-scroll page
+    fn auto_scroll(self, options)        // Auto-scroll page (direction, count, delay)
 
-    // Network
-    fn intercept_requests(self, pattern)
-    fn get_intercepted_requests(self)
-    fn get_network_requests(self)
+    // Network interception
+    fn intercept_requests(self, url_pattern)          // Start intercepting matching requests
+    fn get_intercepted_requests(self)                 // Get captured requests
+    fn get_network_requests(self)                     // Get all network requests
 
     // Lifecycle
-    fn close(self)                    // Close page/connection
+    fn close(self)                       // Close page/connection
 };
 ```

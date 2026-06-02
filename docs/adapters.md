@@ -222,11 +222,18 @@ pipeline:
 | Step | Params | Returns | Browser? |
 |------|--------|---------|----------|
 | `fetch` | URL string or `{url, method, headers, body, params}` | Response body string | No |
-| `navigate` | URL string or `{url, settleMs}` | void | Yes |
-| `evaluate` | JS expression string | Evaluated value | Yes |
-| `click` | CSS selector string | void | Yes |
-| `type` | `{selector, text}` | void | Yes |
-| `wait` | seconds or `{selector, text}` | void | Yes |
+| `navigate` | URL string or `{url, settleMs}` | Previous data (pass-through) | Yes |
+| `evaluate` | JS expression string | Evaluated JSON value | Yes |
+| `click` | CSS selector string | Previous data | Yes |
+| `type` | `{selector, text}` | Previous data | Yes |
+| `wait` | Seconds, `{time}`, `{selector}`, or `{text}` | Previous data | Yes |
+| `press` | Key name string (e.g. "Enter", "Escape") | Previous data | Yes |
+| `snapshot` | (none) or `{selector, include_hidden}` | A11y tree as JSON | Yes |
+| `screenshot` | (none) or `{full_page, selector, path}` | Base64 PNG string | Yes |
+| `scroll` | Count (default: 3) | Previous data | Yes |
+| `tap` | `{store, action, capture}` | Captured API response | Yes |
+| `intercept` | `{url_pattern}` | Previous data | Yes |
+| `collect` | `{parse}` (optional JS function) | Intercepted requests | Yes |
 | `select` | Dot-path string | Extracted value (cloned) | No |
 | `map` | Object with template values | Mapped array | No |
 | `filter` | Template condition string | Filtered array | No |
