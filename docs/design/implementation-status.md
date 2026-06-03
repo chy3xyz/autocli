@@ -148,7 +148,7 @@ Compare: Rust version was ~4.7 MB. Zig version is **5.5× smaller**.
 
 ## Known Limitations
 
-1. **Builtin adapters not embedded** — `_def/AutoCLI/adapters/` directory is empty, so `builtin_adapters.zig` contains an empty array. Adapters work via runtime filesystem loading from `adapters/` directory. Comptime embedding requires placing adapter YAMLs in the expected `_def/AutoCLI/adapters/` path.
+1. **Builtin adapters embedded** — 345 adapters from `adapters/` directory are compiled into the binary at build time via `build.zig`. Runtime filesystem loading from `adapters/` also works as fallback.
 
 2. **Async I/O not available** — Zig 0.17 removed async/await. All I/O is blocking. Parallel fetches require `std.Thread` (not yet implemented for pipeline steps).
 

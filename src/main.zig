@@ -206,14 +206,14 @@ fn executeSiteCommand(io: std.Io, gpa: std.mem.Allocator, args: CliArgs, environ
     // Try loading adapter in priority order: user overrides → builtins
     // 1. ~/.autocli/adapters/{site}/{command}.yaml
     // 2. ~/.autocli/adapters/{site}_{command}.yaml
-    // 3. _def/AutoCLI/adapters/{site}/{command}.yaml
+    // 3. adapters/{site}/{command}.yaml
     const home = environ_map.get("HOME") orelse ".";
 
     const user_path1 = try std.fmt.allocPrint(gpa, "{s}/.autocli/adapters/{s}/{s}.yaml", .{ home, site, command });
     defer gpa.free(user_path1);
     const user_path2 = try std.fmt.allocPrint(gpa, "{s}/.autocli/adapters/{s}_{s}.yaml", .{ home, site, command });
     defer gpa.free(user_path2);
-    const builtin_path = try std.fmt.allocPrint(gpa, "_def/AutoCLI/adapters/{s}/{s}.yaml", .{ site, command });
+    const builtin_path = try std.fmt.allocPrint(gpa, "adapters/{s}/{s}.yaml", .{ site, command });
     defer gpa.free(builtin_path);
 
     var adapter_content: ?[]u8 = tryLoadFile(io, gpa, user_path1);

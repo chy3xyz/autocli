@@ -172,10 +172,10 @@ pub fn build(b: *std.Build) void {
 
 const BuiltinAdapterEntry = struct { path: []const u8 };
 
-/// Scan _def/AutoCLI/adapters/ and generate src/discovery/builtin_adapters.zig
+/// Scan adapters/ and generate src/discovery/builtin_adapters.zig
 /// so that builtin adapters can be embedded at compile time as string literals.
 fn generateBuiltinAdapters(b: *std.Build) !void {
-    const adapters_dir = "_def/AutoCLI/adapters";
+    const adapters_dir = "adapters";
     const output_path = "src/discovery/builtin_adapters.zig";
     const io = b.graph.io;
 
