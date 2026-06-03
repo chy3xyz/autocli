@@ -161,6 +161,7 @@ pub fn build(b: *std.Build) void {
     integration_tests_mod.addImport("core", core_mod);
     integration_tests_mod.addImport("pipeline", pipeline_mod);
     integration_tests_mod.addImport("browser", browser_mod);
+    integration_tests_mod.addImport("discovery", discovery_mod);
     const integration_tests = b.addTest(.{
         .name = "integration_tests",
         .root_module = integration_tests_mod,

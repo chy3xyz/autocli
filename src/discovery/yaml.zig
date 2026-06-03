@@ -78,15 +78,21 @@ pub fn parseYamlAdapter(allocator: std.mem.Allocator, content: []const u8) !CliC
         // Parse pipeline section
         if (in_pipeline) {
             if (std.mem.startsWith(u8, trimmed, "- ")) {
-                // New step - flush previous step first
-                if (collecting_step and current_step_lines.items.len > 0) {
-                    const group = try current_step_lines.toOwnedSlice(allocator);
-                    try pipeline_step_groups.append(allocator, group);
+                if (collecting_step and indent > step_indent) {
+                    // Nested list item inside current step (e.g. args: - value)
+                    // Treat as sub-line, not a new step group
+                    try current_step_lines.append(allocator, try allocator.dupe(u8, line));
+                } else {
+                    // New step - flush previous step first
+                    if (collecting_step and current_step_lines.items.len > 0) {
+                        const group = try current_step_lines.toOwnedSlice(allocator);
+                        try pipeline_step_groups.append(allocator, group);
+                    }
+                    // Start collecting new step
+                    collecting_step = true;
+                    step_indent = indent;
+                    try current_step_lines.append(allocator, try allocator.dupe(u8, line));
                 }
-                // Start collecting new step
-                collecting_step = true;
-                step_indent = indent;
-                try current_step_lines.append(allocator, try allocator.dupe(u8, line));
             } else if (collecting_step and indent > step_indent) {
                 // Sub-line of current step (more indented than the "- " line)
                 try current_step_lines.append(allocator, try allocator.dupe(u8, line));
@@ -194,7 +200,12 @@ pub fn parseYamlAdapter(allocator: std.mem.Allocator, content: []const u8) !CliC
 /// subsequent lines are sub-properties with deeper indentation.
 fn parsePipelineStepGroups(allocator: std.mem.Allocator, groups: []const []const []const u8) ![]const json.Value {
     var steps = std.ArrayList(json.Value).empty;
-    errdefer steps.deinit(allocator);
+    errdefer {
+        for (steps.items) |step| {
+            @import("core").freeJsonValue(allocator, step);
+        }
+        steps.deinit(allocator);
+    }
 
     for (groups) |group| {
         if (group.len == 0) continue;
@@ -212,68 +223,187 @@ fn parsePipelineStepGroups(allocator: std.mem.Allocator, groups: []const []const
             var value_str = std.mem.trim(u8, content[colon_pos + 1 ..], " \t");
 
             if (value_str.len == 0 and group.len > 1) {
-                // Multi-line object: "- key:" followed by indented sub-properties
+                // Multi-line object: "- key:" followed by indented sub-properties.
+                // Supports nested YAML lists: "- key:" followed by "- value" lines.
                 var obj = try json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{});
                 errdefer obj.deinit(allocator);
 
-                // Parse sub-lines as "sub_key: sub_value"
+                const JsonArray = std.array_list.Managed(json.Value);
+                var list_key: ?[]const u8 = null;
+                var list_items = JsonArray.init(allocator);
+                errdefer {
+                    for (list_items.items) |item| freePrimitiveValue(allocator, item);
+                    list_items.deinit();
+                    if (list_key) |lk| allocator.free(lk);
+                }
+
+                // Parse sub-lines: "sub_key: sub_value" OR "- list_item"
                 for (group[1..]) |sub_line| {
                     const sub_trimmed = std.mem.trim(u8, sub_line, " \r\t");
                     if (sub_trimmed.len == 0) continue;
                     if (std.mem.startsWith(u8, sub_trimmed, "#")) continue;
 
-                    if (std.mem.indexOf(u8, sub_trimmed, ":")) |sub_colon| {
+                    if (std.mem.startsWith(u8, sub_trimmed, "- ")) {
+                        // List item: append value to current list_key's array
+                        const item_raw = sub_trimmed[2..]; // strip "- "
+                        const item_str = unquote(item_raw);
+                        const has_template = std.mem.indexOf(u8, item_str, "${{") != null;
+                        if (has_template) {
+                            const template_str = allocator.dupe(u8, item_str) catch return error.OutOfMemory;
+                            try list_items.append(.{ .string = template_str });
+                        } else {
+                            const val = parseJsonPrimitive(allocator, item_str) catch return error.OutOfMemory;
+                            try list_items.append(val);
+                        }
+                    } else if (std.mem.indexOf(u8, sub_trimmed, ":")) |sub_colon| {
+                        // Flush pending list before starting new key
+                        if (list_key) |lk| {
+                            var arr = list_items;
+                            list_key = null;
+                            list_items = JsonArray.init(allocator);
+                            obj.put(allocator, lk, .{ .array = arr }) catch |put_err| {
+                                for (arr.items) |item| freePrimitiveValue(allocator, item);
+                                arr.deinit();
+                                return put_err;
+                            };
+                        }
+
                         const sub_key_raw = std.mem.trim(u8, sub_trimmed[0..sub_colon], " \t");
-                        const sub_key = try allocator.dupe(u8, sub_key_raw);
+                        const sub_key = allocator.dupe(u8, sub_key_raw) catch return error.OutOfMemory;
                         const sub_value = std.mem.trim(u8, sub_trimmed[sub_colon + 1 ..], " \t");
                         const sub_value_unquoted = unquote(sub_value);
 
-                        // Check if value contains template expressions
-                        const has_template = std.mem.indexOf(u8, sub_value_unquoted, "${{") != null;
-                        if (has_template) {
-                            try obj.put(allocator, sub_key, .{ .string = try allocator.dupe(u8, sub_value_unquoted) });
+                        if (sub_value_unquoted.len == 0) {
+                            // Empty value: start collecting list items under this key
+                            list_key = sub_key;
                         } else {
-                            const val = try parseJsonPrimitive(allocator, sub_value_unquoted);
-                            try obj.put(allocator, sub_key, val);
+                            const has_template = std.mem.indexOf(u8, sub_value_unquoted, "${{") != null;
+                            if (has_template) {
+                                const template_str = allocator.dupe(u8, sub_value_unquoted) catch |err| {
+                                    allocator.free(sub_key);
+                                    return err;
+                                };
+                                obj.put(allocator, sub_key, .{ .string = template_str }) catch |put_err| {
+                                    allocator.free(sub_key);
+                                    allocator.free(template_str);
+                                    return put_err;
+                                };
+                            } else {
+                                const val = parseJsonPrimitive(allocator, sub_value_unquoted) catch |err| {
+                                    allocator.free(sub_key);
+                                    return err;
+                                };
+                                obj.put(allocator, sub_key, val) catch |put_err| {
+                                    allocator.free(sub_key);
+                                    freePrimitiveValue(allocator, val);
+                                    return put_err;
+                                };
+                            }
                         }
                     }
                 }
 
+                // Flush any remaining list
+                if (list_key) |lk| {
+                    if (list_items.items.len > 0) {
+                        var arr = list_items;
+                        list_key = null;
+                        list_items = JsonArray.init(allocator);
+                        obj.put(allocator, lk, .{ .array = arr }) catch |put_err| {
+                            for (arr.items) |item| freePrimitiveValue(allocator, item);
+                            arr.deinit();
+                            return put_err;
+                        };
+                    } else {
+                        allocator.free(lk);
+                        list_key = null;
+                    }
+                }
+
                 // Wrap in step object: { "fetch": { "url": "..." } }
-                var step_obj = try json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{});
-                errdefer step_obj.deinit(allocator);
-                try step_obj.put(allocator, key, .{ .object = obj });
-                try steps.append(allocator, .{ .object = step_obj });
+                var step_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch |err| {
+                    obj.deinit(allocator);
+                    allocator.free(key);
+                    return err;
+                };
+                // obj ownership transfers to step_obj — don't free obj on error below; step_obj.deinit handles it
+                step_obj.put(allocator, key, .{ .object = obj }) catch |put_err| {
+                    step_obj.deinit(allocator);
+                    return put_err;
+                };
+                steps.append(allocator, .{ .object = step_obj }) catch |append_err| {
+                    step_obj.deinit(allocator);
+                    return append_err;
+                };
             } else if (value_str.len > 0) {
                 // Inline value: "- key: value"
                 value_str = unquote(value_str);
 
-                var step_obj = try json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{});
+                var step_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch |err| {
+                    allocator.free(key);
+                    return err;
+                };
                 errdefer step_obj.deinit(allocator);
 
                 // Check if value contains template expressions
                 const has_template = std.mem.indexOf(u8, value_str, "${{") != null;
                 if (has_template) {
-                    try step_obj.put(allocator, key, .{ .string = try allocator.dupe(u8, value_str) });
+                    const template_str = allocator.dupe(u8, value_str) catch |err| {
+                        step_obj.deinit(allocator);
+                        allocator.free(key);
+                        return err;
+                    };
+                    step_obj.put(allocator, key, .{ .string = template_str }) catch |put_err| {
+                        allocator.free(template_str);
+                        step_obj.deinit(allocator);
+                        allocator.free(key);
+                        return put_err;
+                    };
                 } else {
-                    const value = try parseJsonPrimitive(allocator, value_str);
-                    try step_obj.put(allocator, key, value);
+                    const value = parseJsonPrimitive(allocator, value_str) catch |err| {
+                        step_obj.deinit(allocator);
+                        allocator.free(key);
+                        return err;
+                    };
+                    step_obj.put(allocator, key, value) catch |put_err| {
+                        freePrimitiveValue(allocator, value);
+                        step_obj.deinit(allocator);
+                        allocator.free(key);
+                        return put_err;
+                    };
                 }
 
-                try steps.append(allocator, .{ .object = step_obj });
+                steps.append(allocator, .{ .object = step_obj }) catch |append_err| {
+                    step_obj.deinit(allocator);
+                    return append_err;
+                };
             }
         } else {
             // Just a step name with no value: "- step_name"
             const step_name_raw = std.mem.trim(u8, content, " \t");
-            const step_name = try allocator.dupe(u8, step_name_raw);
-            var step_obj = try json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{});
-            errdefer step_obj.deinit(allocator);
-            try step_obj.put(allocator, step_name, .null);
-            try steps.append(allocator, .{ .object = step_obj });
+            const step_name = allocator.dupe(u8, step_name_raw) catch return error.OutOfMemory;
+            var step_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch |err| {
+                allocator.free(step_name);
+                return err;
+            };
+            step_obj.put(allocator, step_name, .null) catch |put_err| {
+                allocator.free(step_name);
+                step_obj.deinit(allocator);
+                return put_err;
+            };
+            steps.append(allocator, .{ .object = step_obj }) catch |append_err| {
+                step_obj.deinit(allocator);
+                return append_err;
+            };
         }
     }
 
     return try steps.toOwnedSlice(allocator);
+}
+
+/// Free a json.Value returned by parseJsonPrimitive (only .string case has allocation).
+fn freePrimitiveValue(allocator: std.mem.Allocator, val: json.Value) void {
+    if (val == .string) allocator.free(val.string);
 }
 
 /// Try to parse a string as a JSON primitive (number, bool, null)
