@@ -99,9 +99,7 @@ pub fn build(b: *std.Build) void {
     // Run command
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    // b.args was removed in Zig 0.17; use addArgs on the run step directly if needed
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 

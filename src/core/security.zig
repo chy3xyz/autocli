@@ -16,10 +16,12 @@ pub fn validateFetchUrl(uri: std.Uri) bool {
     const scheme = uri.scheme;
     if (!std.mem.eql(u8, scheme, "http") and !std.mem.eql(u8, scheme, "https")) return false;
 
-    var host_buf: [std.Io.net.HostName.max_len]u8 = undefined;
-    const host = uri.getHost(&host_buf) catch return false;
-    if (host.bytes.len == 0) return false;
-    const host_str = host.bytes;
+    const host_component = uri.host orelse return false;
+    const host_str = switch (host_component) {
+        .raw => |s| s,
+        .percent_encoded => |s| s,
+    };
+    if (host_str.len == 0) return false;
 
     // Reject localhost and loopback
     if (std.mem.eql(u8, host_str, "localhost")) return false;
