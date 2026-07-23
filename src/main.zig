@@ -291,6 +291,7 @@ fn executeSiteCommand(io: std.Io, gpa: std.mem.Allocator, args: CliArgs, environ
         .allocator = gpa,
         .client = .{ .allocator = gpa, .io = io },
     };
+    defer fetch_state.deinit();
 
     // Register all steps (fetch + transform + browser)
     registerFetchSteps(&registry, &fetch_state) catch |err| {
@@ -416,7 +417,7 @@ fn tryLoadFile(io: std.Io, gpa: std.mem.Allocator, path: []const u8) ?[]u8 {
 
 fn printVersion(io: std.Io) !void {
     const stdout = std.Io.File.stdout();
-    try stdout.writeStreamingAll(io, "autocli 0.1.0 (zig 0.16.0)\n");
+    try stdout.writeStreamingAll(io, "autocli 0.1.0 (zig 0.17.0-dev)\n");
 }
 
 fn printUsage(io: std.Io) !void {

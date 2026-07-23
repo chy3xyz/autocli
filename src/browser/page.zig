@@ -19,6 +19,7 @@ const dom = @import("dom.zig");
 fn freeJsonValue(allocator: std.mem.Allocator, val: json.Value) void {
     switch (val) {
         .string => |s| allocator.free(s),
+        .number_string => |s| allocator.free(s),
         .array => |arr| {
             for (arr.items) |item| {
                 freeJsonValue(allocator, item);

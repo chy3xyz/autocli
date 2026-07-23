@@ -1,6 +1,7 @@
 const std = @import("std");
 const json = @import("std").json;
 const CliError = @import("core").CliError;
+const cloneJsonValue = @import("../executor.zig").cloneJsonValue;
 
 /// Template context - variables available in expressions
 pub const TemplateContext = struct {
@@ -666,6 +667,7 @@ fn valueToString(allocator: std.mem.Allocator, val: json.Value) ![]const u8 {
 fn freeJsonValue(allocator: std.mem.Allocator, val: json.Value) void {
     switch (val) {
         .string => |s| allocator.free(s),
+        .number_string => |s| allocator.free(s),
         .array => |arr| {
             for (arr.items) |item| freeJsonValue(allocator, item);
             var mut_arr = arr; mut_arr.deinit();
@@ -1556,26 +1558,27 @@ pub fn renderTemplateStr(template: []const u8, ctx: TemplateContext, allocator: 
         return .{ .string = duped };
     }
 
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_alloc = arena.allocator();
+
     // Full expression mode
     if (markers.len == 1 and markers.len > 0 and markers[0].start == 0 and markers[0].end == template.len) {
-        const lexer = try allocator.create(Lexer);
+        const lexer = try arena_alloc.create(Lexer);
         lexer.* = Lexer{
             .input = markers[0].expr,
             .pos = 0,
-            .allocator = allocator,
+            .allocator = arena_alloc,
         };
-        defer allocator.destroy(lexer);
-        const parser = try allocator.create(Parser);
+        const parser = try arena_alloc.create(Parser);
         parser.* = Parser{ .lexer = lexer, .current = .Eof };
-        defer allocator.destroy(parser);
         const parsed_expr = parser.parse() catch {
             return CliError.Pipeline;
         };
-        defer freeExpr(allocator, &parsed_expr);
-        const result = evaluate(parsed_expr, ctx, allocator) catch {
+        const result = evaluate(parsed_expr, ctx, arena_alloc) catch {
             return CliError.Pipeline;
         };
-        return result;
+        return cloneJsonValue(allocator, result) catch return CliError.OutOfMemory;
     }
 
     // Partial interpolation
@@ -1585,24 +1588,19 @@ pub fn renderTemplateStr(template: []const u8, ctx: TemplateContext, allocator: 
 
     for (markers) |m| {
         try result.appendSlice(allocator, template[last_end..m.start]);
-        const lexer = try allocator.create(Lexer);
+        const lexer = try arena_alloc.create(Lexer);
         lexer.* = Lexer{
             .input = m.expr,
             .pos = 0,
-            .allocator = allocator,
+            .allocator = arena_alloc,
         };
-        defer allocator.destroy(lexer);
-        const parser = try allocator.create(Parser);
+        const parser = try arena_alloc.create(Parser);
         parser.* = Parser{ .lexer = lexer, .current = .Eof };
-        defer allocator.destroy(parser);
         const val = blk: {
             const parsed_expr = parser.parse() catch return CliError.Pipeline;
-            defer freeExpr(allocator, &parsed_expr);
-            break :blk try evaluate(parsed_expr, ctx, allocator);
+            break :blk try evaluate(parsed_expr, ctx, arena_alloc);
         };
-        defer freeJsonValue(allocator, val);
-        const val_str = try valueToString(allocator, val);
-        defer allocator.free(val_str);
+        const val_str = try valueToString(arena_alloc, val);
         try result.appendSlice(allocator, val_str);
         last_end = m.end;
     }

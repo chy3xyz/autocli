@@ -12,6 +12,7 @@ const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 pub fn freeJsonValue(allocator: std.mem.Allocator, val: json.Value) void {
     switch (val) {
         .string => |s| allocator.free(s),
+        .number_string => |s| allocator.free(s),
         .array => |arr| {
             for (arr.items) |item| {
                 freeJsonValue(allocator, item);
@@ -36,11 +37,17 @@ pub fn freeJsonValue(allocator: std.mem.Allocator, val: json.Value) void {
 /// All string allocations are duplicated with the given allocator.
 pub fn cloneJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value {
     switch (val) {
-        .null, .bool, .integer, .float, .number_string => return val,
+        .null, .bool, .integer, .float => return val,
         .string => |s| return .{ .string = try allocator.dupe(u8, s) },
+        .number_string => |s| return .{ .number_string = try allocator.dupe(u8, s) },
         .array => |arr| {
             var items = std.ArrayListUnmanaged(json.Value){ .items = &.{}, .capacity = 0 };
-            defer items.deinit(allocator);
+            errdefer {
+                for (items.items) |item| {
+                    freeJsonValue(allocator, item);
+                }
+                items.deinit(allocator);
+            }
             for (arr.items) |item| {
                 const cloned = try cloneJsonValue(allocator, item);
                 try items.append(allocator, cloned);
@@ -49,10 +56,18 @@ pub fn cloneJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value
         },
         .object => |obj| {
             var new_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch return error.OutOfMemory;
-            errdefer new_obj.deinit(allocator);
+            errdefer {
+                var it = new_obj.iterator();
+                while (it.next()) |entry| {
+                    allocator.free(entry.key_ptr.*);
+                    freeJsonValue(allocator, entry.value_ptr.*);
+                }
+                new_obj.deinit(allocator);
+            }
             var it = obj.iterator();
             while (it.next()) |entry| {
                 const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
+                errdefer allocator.free(key_copy);
                 const value_copy = try cloneJsonValue(allocator, entry.value_ptr.*);
                 try new_obj.put(allocator, key_copy, value_copy);
             }
@@ -120,6 +135,7 @@ pub fn executePipeline(
     metrics: ?*ExecutionMetrics,
 ) CliError!json.Value {
     var data: json.Value = .null;
+    errdefer freeJsonValue(allocator, data);
     const start = std.Io.Timestamp.now(io, .real);
 
     for (pipeline, 0..) |step, step_idx| {

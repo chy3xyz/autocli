@@ -8,6 +8,7 @@ const TemplateContext = @import("../template/mod.zig").TemplateContext;
 const renderTemplate = @import("../template/mod.zig").renderTemplate;
 const renderTemplateStr = @import("../template/mod.zig").renderTemplateStr;
 const freeJsonValue = @import("../executor.zig").freeJsonValue;
+const cloneJsonValue = @import("../executor.zig").cloneJsonValue;
 
 const JsonArray = std.array_list.Managed(json.Value);
 
@@ -118,6 +119,10 @@ const HttpMethod = enum {
 pub const FetchStepState = struct {
     allocator: std.mem.Allocator,
     client: std.http.Client,
+
+    pub fn deinit(self: *FetchStepState) void {
+        self.client.deinit();
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -551,9 +556,17 @@ fn doFetchWithClient(
         };
         defer allocator.free(body_text);
 
-        const parsed = json.parseFromSliceLeaky(json.Value, allocator, body_text, .{}) catch {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
+        const parsed_temp = json.parseFromSliceLeaky(json.Value, arena.allocator(), body_text, .{}) catch {
             req.deinit();
             return CliError.Pipeline;
+        };
+
+        const parsed = cloneJsonValue(allocator, parsed_temp) catch {
+            req.deinit();
+            return CliError.OutOfMemory;
         };
         log_state.recordStatus(status);
         req.deinit();
