@@ -188,7 +188,7 @@ fn copyJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value {
             for (arr.items, 0..) |item, i| {
                 items[i] = try copyJsonValue(allocator, item);
             }
-            return .{ .array = std.array_list.Managed(json.Value){ .items = items, .capacity = items.len, .allocator = allocator } };
+            return .{ .array = std.array_list.Managed(json.Value).fromOwnedSlice(allocator, items) };
         },
         .object => |obj| {
             var result = try std.json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{});

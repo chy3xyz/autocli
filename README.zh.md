@@ -461,10 +461,10 @@ Pipeline 中使用 `${{ expression }}` 语法：
 |------|--------|------|
 | `OPENCLI_VERBOSE` | - | 启用详细输出 |
 | `OPENCLI_DAEMON_PORT` | `19825` | Daemon 端口 |
-| `OPENCLI_CDP_ENDPOINT` | - | CDP 直连端点（跳过 Daemon） |
-| `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | 命令超时（秒） |
-| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `30` | 浏览器连接超时（秒） |
-| `OPENCLI_BROWSER_EXPLORE_TIMEOUT` | `120` | Explore 超时（秒） |
+| `OPENCLI_CDP_ENDPOINT` | - | CDP 直连（`ws://`、`http://host:port` 或 `host:port`），跳过 Daemon。也认 `AUTOCLI_CDP_ENDPOINT`。 |
+| `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `120` | 管道超时（秒）。也认 `AUTOCLI_BROWSER_COMMAND_TIMEOUT`。 |
+| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `30` | Daemon 和扩展连接总预算（秒）。 |
+| `OPENCLI_BROWSER_EXPLORE_TIMEOUT` | `120` | `generate` 时浏览器探索预算（秒）。 |
 
 ### 文件路径
 

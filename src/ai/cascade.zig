@@ -3,6 +3,8 @@ const json = std.json;
 const CliError = @import("core").CliError;
 const IPage = @import("core").IPage;
 const Strategy = @import("core").Strategy;
+const NetworkRequest = @import("core").NetworkRequest;
+const InterceptedRequest = @import("core").InterceptedRequest;
 
 pub const StrategyTestResult = struct {
     strategy: Strategy,
@@ -23,14 +25,19 @@ pub const CascadeResult = struct {
     }
 };
 
-const CASCADE_ORDER = &[_]Strategy{ .public, .cookie, .header, .intercept };
+const CASCADE_ORDER = &[_]Strategy{ .public, .cookie, .header, .intercept, .ui };
 
 pub fn probeEndpoint(allocator: std.mem.Allocator, page: IPage, url: []const u8, strategy: Strategy) StrategyTestResult {
+    switch (strategy) {
+        .intercept => return probeIntercept(allocator, page, url),
+        .ui => return probeUi(allocator, page),
+        else => {},
+    }
     const js = switch (strategy) {
         .public => buildPublicProbeJs(allocator, url) catch return .{ .strategy = strategy, .success = false, .has_data = false },
         .cookie => buildCookieProbeJs(allocator, url) catch return .{ .strategy = strategy, .success = false, .has_data = false },
         .header => buildHeaderProbeJs(allocator, url) catch return .{ .strategy = strategy, .success = false, .has_data = false },
-        else => return .{ .strategy = strategy, .success = false, .has_data = false },
+        .intercept, .ui => unreachable,
     };
     defer allocator.free(js);
 
@@ -111,6 +118,108 @@ pub fn renderCascadeResult(allocator: std.mem.Allocator, result: *const CascadeR
         }
     }
     return try buf.toOwnedSlice(allocator);
+}
+
+fn hostOf(url: []const u8) ?[]const u8 {
+    const scheme = std.mem.indexOf(u8, url, "://") orelse return null;
+    const rest = url[scheme + 3 ..];
+    const end = std.mem.indexOfAny(u8, rest, "/?#") orelse rest.len;
+    if (end == 0) return null;
+    const hostport = rest[0..end];
+    if (hostport[0] != '[') {
+        if (std.mem.lastIndexOfScalar(u8, hostport, ':')) |colon| return hostport[0..colon];
+    }
+    return hostport;
+}
+
+fn probeIntercept(allocator: std.mem.Allocator, page: IPage, url: []const u8) StrategyTestResult {
+    const fail = StrategyTestResult{ .strategy = .intercept, .success = false, .has_data = false };
+    const host = hostOf(url) orelse return fail;
+    page.interceptRequests(host) catch {};
+
+    const network = page.getNetworkRequests() catch return fail;
+    defer freeNetworkList(allocator, network);
+    for (network) |req| {
+        if (std.mem.indexOf(u8, req.url, host) == null) continue;
+        const status_ok = if (req.status) |s| s < 400 else false;
+        const has_body = if (req.response_body) |body| body.len > 0 else false;
+        if (status_ok or has_body) {
+            return .{
+                .strategy = .intercept,
+                .success = true,
+                .has_data = true,
+                .status_code = req.status,
+            };
+        }
+    }
+
+    const captured = page.getInterceptedRequests() catch return fail;
+    defer freeInterceptedList(allocator, captured);
+    for (captured) |req| {
+        if (std.mem.indexOf(u8, req.url, host) != null) {
+            return .{ .strategy = .intercept, .success = true, .has_data = true };
+        }
+    }
+    return fail;
+}
+
+fn probeUi(allocator: std.mem.Allocator, page: IPage) StrategyTestResult {
+    const fail = StrategyTestResult{ .strategy = .ui, .success = false, .has_data = false };
+    const js =
+        \\(function(){
+        \\  var text = (document.body && document.body.innerText) || '';
+        \\  var items = document.querySelectorAll('article, li');
+        \\  var hasData = text.trim().length > 80 || items.length >= 3;
+        \\  return { ok: true, hasData: hasData, status: 200 };
+        \\})()
+    ;
+    const result = page.evaluate(js) catch return fail;
+    defer {
+        var mut = result;
+        mut.deinit(allocator);
+    }
+    if (result != .object) return fail;
+    const obj = result.object;
+    const has_data = if (obj.get("hasData")) |v| v == .bool and v.bool else false;
+    return .{
+        .strategy = .ui,
+        .success = has_data,
+        .has_data = has_data,
+        .status_code = 200,
+    };
+}
+
+fn freeNetworkList(allocator: std.mem.Allocator, reqs: []NetworkRequest) void {
+    if (reqs.len == 0) return;
+    for (reqs) |*req| {
+        allocator.free(req.url);
+        allocator.free(req.method);
+        if (req.body) |body| allocator.free(body);
+        if (req.response_body) |body| allocator.free(body);
+        var it = req.headers.iterator();
+        while (it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        req.headers.deinit();
+    }
+    allocator.free(reqs);
+}
+
+fn freeInterceptedList(allocator: std.mem.Allocator, reqs: []InterceptedRequest) void {
+    if (reqs.len == 0) return;
+    for (reqs) |*req| {
+        allocator.free(req.url);
+        allocator.free(req.method);
+        if (req.body) |body| allocator.free(body);
+        var it = req.headers.iterator();
+        while (it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        req.headers.deinit();
+    }
+    allocator.free(reqs);
 }
 
 fn buildPublicProbeJs(allocator: std.mem.Allocator, url: []const u8) ![]const u8 {

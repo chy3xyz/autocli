@@ -16,9 +16,9 @@ pub fn loadUserAdapters(
     environ_map: *const std.process.Environ.Map,
     registry: *Registry,
 ) !usize {
-    const home = environ_map.get("HOME") orelse return 0;
+    const home = @import("core").env.homeDir(environ_map) orelse return 0;
 
-    const adapters_dir = try std.fmt.allocPrint(allocator, "{s}/.autocli/adapters", .{home});
+    const adapters_dir = try std.fs.path.join(allocator, &.{ home, ".autocli", "adapters" });
     defer allocator.free(adapters_dir);
 
     var count: usize = 0;
@@ -91,9 +91,9 @@ pub fn listUserAdapters(
     io: std.Io,
     environ_map: *const std.process.Environ.Map,
 ) ![]AdapterMeta {
-    const home = environ_map.get("HOME") orelse return &[0]AdapterMeta{};
+    const home = @import("core").env.homeDir(environ_map) orelse return &[0]AdapterMeta{};
 
-    const adapters_dir = try std.fmt.allocPrint(allocator, "{s}/.autocli/adapters", .{home});
+    const adapters_dir = try std.fs.path.join(allocator, &.{ home, ".autocli", "adapters" });
     defer allocator.free(adapters_dir);
 
     var list = std.ArrayList(AdapterMeta).empty;

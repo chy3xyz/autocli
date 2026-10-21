@@ -46,12 +46,12 @@ fn cloneJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value {
         .null, .bool, .integer, .float, .number_string => return val,
         .string => |s| return .{ .string = try allocator.dupe(u8, s) },
         .array => |arr| {
-            var items = std.ArrayListUnmanaged(json.Value){ .items = &.{}, .capacity = 0 };
-            defer items.deinit(allocator);
+            var items: std.ArrayListUnmanaged(json.Value) = .empty;
+            errdefer items.deinit(allocator);
             for (arr.items) |item| {
                 try items.append(allocator, try cloneJsonValue(allocator, item));
             }
-            return .{ .array = std.array_list.Managed(json.Value){ .items = items.items, .capacity = items.capacity, .allocator = allocator } };
+            return .{ .array = items.toManaged(allocator) };
         },
         .object => |obj| {
             var new_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch return error.OutOfMemory;

@@ -6,14 +6,22 @@ const DaemonClient = @import("client.zig").DaemonClient;
 const makeIPage = @import("page.zig").makeIPage;
 const CdpPage = @import("cdp.zig").CdpPage;
 const CdpClient = @import("cdp.zig").CdpClient;
-const discoverCdpWsUrl = @import("cdp.zig").discoverCdpWsUrl;
+const resolveCdpWsUrl = @import("cdp.zig").resolveCdpWsUrl;
 const DEFAULT_DAEMON_PORT = @import("types.zig").DEFAULT_DAEMON_PORT;
 
-const READY_TIMEOUT_MS = 10_000;
 const READY_POLL_INTERVAL_MS = 200;
 const EXTENSION_INITIAL_WAIT_MS = 5_000;
-const EXTENSION_REMAINING_WAIT_MS = 25_000;
 const EXTENSION_POLL_INTERVAL_MS = 500;
+
+fn nowMs(io: std.Io) i64 {
+    return @intCast(@divFloor(std.Io.Timestamp.now(io, .real).nanoseconds, std.time.ns_per_ms));
+}
+
+fn remainingMs(io: std.Io, deadline_ms: i64) u64 {
+    const left = deadline_ms - nowMs(io);
+    if (left <= 0) return 0;
+    return @intCast(left);
+}
 
 /// BrowserBridge - High-level bridge for managing browser connections
 ///
@@ -23,11 +31,15 @@ const EXTENSION_POLL_INTERVAL_MS = 500;
 /// 3. Wait for extension to connect
 /// 4. Return DaemonPage implementing IPage
 ///
-/// Note: Zig 0.16.0 uses synchronous I/O. All waiting is done via polling + sleep.
+/// Note: Zig 0.17.0 uses synchronous I/O. All waiting is done via polling + sleep.
 pub const BrowserBridge = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     port: u16,
+    /// Whole-connect budget for daemon ready + extension poll. Default 30s.
+    connect_timeout_ms: u64 = 30_000,
+    /// When set, skip the daemon and attach to this CDP endpoint.
+    cdp_endpoint: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, port: u16) BrowserBridge {
         return .{ .allocator = allocator, .io = io, .port = port };
@@ -40,6 +52,10 @@ pub const BrowserBridge = struct {
     /// Connect to the daemon, starting it if necessary, and return an IPage
     /// Returns error if Chrome extension is not connected
     pub fn connect(self: *BrowserBridge) !IPage {
+        if (self.cdp_endpoint) |endpoint| {
+            return self.connectCdpEndpoint(endpoint);
+        }
+
         // Step 1: Check Chrome is running
         if (!self.isChromeRunning()) {
             std.log.err("Chrome is not running", .{});
@@ -54,28 +70,32 @@ pub const BrowserBridge = struct {
         }
         client_ptr.* = DaemonClient.init(self.allocator, self.port, self.io);
 
+        const deadline = nowMs(self.io) + @as(i64, @intCast(self.connect_timeout_ms));
+
         // Step 2: Ensure daemon is running
         if (client_ptr.isRunning()) {
             std.log.info("daemon already running on port {d}, reusing", .{self.port});
         } else {
             std.log.info("daemon not running on port {d}, spawning", .{self.port});
             try self.spawnDaemon();
-            try self.waitForReady(client_ptr);
+            try self.waitForReady(client_ptr, deadline);
         }
 
-        // Step 3: Wait up to 5s for extension to connect
-        if (self.pollExtension(client_ptr, EXTENSION_INITIAL_WAIT_MS, false)) {
+        // Step 3: Wait for the extension inside the remaining connect budget.
+        const first_slice = @min(@as(u64, EXTENSION_INITIAL_WAIT_MS), remainingMs(self.io, deadline));
+        if (first_slice > 0 and self.pollExtension(client_ptr, first_slice, false)) {
             return try makeIPage(self.allocator, client_ptr, true, "default");
         }
 
         // Step 4: Extension not connected — try to wake up Chrome
-        std.log.info("Extension not connected after 5s, attempting to wake up Chrome", .{});
+        std.log.info("Extension not connected yet, attempting to wake up Chrome", .{});
         const stderr = std.Io.File.stderr();
         stderr.writeStreamingAll(self.io, "Waking up Chrome extension...\n") catch {};
         self.wakeChrome();
 
-        // Step 5: Wait remaining 25s with progress
-        if (self.pollExtension(client_ptr, EXTENSION_REMAINING_WAIT_MS, true)) {
+        // Step 5: Use whatever budget is left.
+        const rest = remainingMs(self.io, deadline);
+        if (rest > 0 and self.pollExtension(client_ptr, rest, true)) {
             return try makeIPage(self.allocator, client_ptr, true, "default");
         }
 
@@ -85,13 +105,16 @@ pub const BrowserBridge = struct {
         self.allocator.destroy(client_ptr);
 
         // Fallback: try direct CDP WebSocket connection
-        const ws_url = discoverCdpWsUrl(self.allocator, self.io) catch {
+        const stderr2 = std.Io.File.stderr();
+        stderr2.writeStreamingAll(self.io, "Falling back to direct CDP connection...\n") catch {};
+        return self.connectCdpEndpoint(null);
+    }
+
+    fn connectCdpEndpoint(self: *BrowserBridge, endpoint: ?[]const u8) !IPage {
+        const ws_url = resolveCdpWsUrl(self.allocator, self.io, endpoint) catch {
             return CliError.BrowserConnect;
         };
         defer self.allocator.free(ws_url);
-
-        const stderr2 = std.Io.File.stderr();
-        stderr2.writeStreamingAll(self.io, "Falling back to direct CDP connection...\n") catch {};
 
         // Parse ws_url: ws://host:port/path
         const ws_url_trimmed = if (std.mem.startsWith(u8, ws_url, "ws://"))
@@ -157,11 +180,8 @@ pub const BrowserBridge = struct {
     }
 
     /// Wait for the daemon to become ready by polling /health.
-    fn waitForReady(self: *BrowserBridge, client: *DaemonClient) !void {
-        const start = @divFloor(std.Io.Timestamp.now(self.io, .real).nanoseconds, std.time.ns_per_ms);
-        const deadline = start + READY_TIMEOUT_MS;
-
-        while (@divFloor(std.Io.Timestamp.now(self.io, .real).nanoseconds, std.time.ns_per_ms) < deadline) {
+    fn waitForReady(self: *BrowserBridge, client: *DaemonClient, deadline_ms: i64) !void {
+        while (nowMs(self.io) < deadline_ms) {
             if (client.isRunning()) {
                 std.log.info("daemon is ready", .{});
                 return;
@@ -230,7 +250,8 @@ pub const BrowserBridge = struct {
             }) catch return false;
             const stdout_pipe = child.stdout.?;
             var buf: [1024]u8 = undefined;
-            const n = stdout_pipe.read(self.io, &buf) catch return false;
+            var iov = [_][]u8{&buf};
+            const n = stdout_pipe.readStreaming(self.io, &iov) catch return false;
             _ = child.wait(self.io) catch |err| {
                 std.log.warn("child.wait failed: {s}", .{@errorName(err)});
             };

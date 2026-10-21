@@ -388,20 +388,46 @@ fn fetchPerItem(
     @memset(errors, null);
     defer allocator.free(errors);
 
-    // Sequential per-item fetch (std.http.Client is not thread-safe)
-    for (0..items.len) |idx| {
-        const ctx = FetchWorkerCtx{
-            .allocator = allocator,
-            .client = &state.client,
-            .method = method,
-            .url = item_params[idx].url,
-            .body = item_params[idx].body,
-            .results = results,
-            .errors = errors,
-            .index = idx,
-        };
-        fetchWorker(ctx);
-        if (errors[idx]) |err| return err;
+    // std.http.Client is not thread-safe. Each worker gets its own client.
+    // The process Io (Threaded) is safe to share.
+    const batch_size: usize = 10;
+    var cursor: usize = 0;
+    while (cursor < items.len) {
+        const n = @min(batch_size, items.len - cursor);
+        {
+            var clients: [10]std.http.Client = undefined;
+            var threads: [10]std.Thread = undefined;
+            var spawned: usize = 0;
+            defer {
+                for (0..spawned) |i| threads[i].join();
+                for (0..spawned) |i| clients[i].deinit();
+            }
+            for (0..n) |i| {
+                const idx = cursor + i;
+                clients[i] = .{ .allocator = allocator, .io = state.client.io };
+                threads[i] = std.Thread.spawn(.{}, fetchWorker, .{FetchWorkerCtx{
+                    .allocator = allocator,
+                    .client = &clients[i],
+                    .method = method,
+                    .url = item_params[idx].url,
+                    .body = item_params[idx].body,
+                    .results = results,
+                    .errors = errors,
+                    .index = idx,
+                }}) catch |err| {
+                    clients[i].deinit();
+                    return switch (err) {
+                        error.OutOfMemory => CliError.OutOfMemory,
+                        else => CliError.Pipeline,
+                    };
+                };
+                spawned += 1;
+            }
+        }
+        for (cursor..cursor + n) |idx| {
+            if (errors[idx]) |err| return err;
+        }
+        cursor += n;
     }
 
     var result_list = JsonArray.init(allocator);

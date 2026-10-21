@@ -28,3 +28,4 @@ pub const requestWithTimeout = @import("http.zig").requestWithTimeout;
 pub const http_util = @import("http.zig");
 pub const isSafePathComponent = @import("security.zig").isSafePathComponent;
 pub const validateFetchUrl = @import("security.zig").validateFetchUrl;
+pub const env = @import("env.zig");

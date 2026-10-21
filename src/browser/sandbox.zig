@@ -276,8 +276,8 @@ fn parseJsObject(allocator: std.mem.Allocator, expr: []const u8) CliError!json.V
 }
 
 fn parseJsArray(allocator: std.mem.Allocator, expr: []const u8) CliError!json.Value {
-    var items = std.ArrayListUnmanaged(json.Value){ .items = &.{}, .capacity = 0 };
-    defer items.deinit(allocator);
+    var items: std.ArrayListUnmanaged(json.Value) = .empty;
+    errdefer items.deinit(allocator);
     var i: usize = 1;
     while (i < expr.len) {
         while (i < expr.len and (expr[i] == ' ' or expr[i] == '\t' or expr[i] == '\n' or expr[i] == '\r' or expr[i] == ',')) i += 1;
@@ -285,7 +285,7 @@ fn parseJsArray(allocator: std.mem.Allocator, expr: []const u8) CliError!json.Va
         const value = parseJsValue(allocator, expr, &i);
         items.append(allocator, value) catch return CliError.OutOfMemory;
     }
-    return .{ .array = std.array_list.Managed(json.Value){ .items = items.items, .capacity = items.capacity, .allocator = allocator } };
+    return .{ .array = items.toManaged(allocator) };
 }
 
 fn parseJsValue(allocator: std.mem.Allocator, expr: []const u8, i: *usize) json.Value {

@@ -416,20 +416,43 @@ pub const CdpClient = struct {
 
 const CDP_DISCOVER_TIMEOUT_MS: u32 = 5_000;
 
+/// Discover a Chrome CDP WebSocket URL.
+/// `endpoint` is null (localhost:9222), an http(s) base, or a ws(s) URL.
+pub fn resolveCdpWsUrl(allocator: std.mem.Allocator, io: std.Io, endpoint: ?[]const u8) ![]const u8 {
+    const given = endpoint orelse return discoverCdpWsUrl(allocator, io);
+    if (std.mem.startsWith(u8, given, "ws://") or std.mem.startsWith(u8, given, "wss://")) {
+        return allocator.dupe(u8, given);
+    }
+    if (std.mem.indexOf(u8, given, "/json") != null) {
+        return discoverCdpWsUrlAt(allocator, io, given);
+    }
+    const base = std.mem.trimEnd(u8, given, "/");
+    const list_url = if (std.mem.startsWith(u8, base, "http://") or std.mem.startsWith(u8, base, "https://"))
+        try std.fmt.allocPrint(allocator, "{s}/json/list", .{base})
+    else
+        try std.fmt.allocPrint(allocator, "http://{s}/json/list", .{base});
+    defer allocator.free(list_url);
+    return discoverCdpWsUrlAt(allocator, io, list_url);
+}
+
 /// Discover Chrome CDP WebSocket URL from localhost:9222
 pub fn discoverCdpWsUrl(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
+    return discoverCdpWsUrlAt(allocator, io, "http://127.0.0.1:9222/json/list");
+}
+
+fn discoverCdpWsUrlAt(allocator: std.mem.Allocator, io: std.Io, list_url: []const u8) ![]const u8 {
     const http_util = @import("core").http_util;
     var zero_attempt: u32 = 0;
     var log_state = http_util.HttpLogState{
         .enabled = http_util.http_logging_enabled,
         .method = "GET",
-        .url = "http://localhost:9222/json/list",
+        .url = list_url,
         .start_ts = std.Io.Timestamp.now(io, .real),
         .attempt = &zero_attempt,
     };
     defer log_state.log(io);
 
-    const uri = std.Uri.parse("http://localhost:9222/json/list") catch return error.UriParseFailed;
+    const uri = std.Uri.parse(list_url) catch return error.UriParseFailed;
 
     var client = std.http.Client{ .allocator = allocator, .io = io };
     defer client.deinit();

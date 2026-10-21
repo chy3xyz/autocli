@@ -174,8 +174,10 @@ pipeline:
 |----------|---------|-------------|
 | `AUTOCLI_VERBOSE` | - | Enable verbose output |
 | `AUTOCLI_DAEMON_PORT` | `19825` | Daemon port |
-| `OPENCLI_CDP_ENDPOINT` | - | Direct CDP endpoint (bypass daemon) |
-| `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | Command timeout (seconds) |
+| `OPENCLI_CDP_ENDPOINT` | - | Direct CDP endpoint (`ws://`, `http://host:port`, or `host:port`). Skips the daemon. `AUTOCLI_CDP_ENDPOINT` is also accepted. |
+| `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `120` | Pipeline timeout in seconds. `AUTOCLI_BROWSER_COMMAND_TIMEOUT` is also accepted. |
+| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `30` | Daemon and extension connect budget in seconds. |
+| `OPENCLI_BROWSER_EXPLORE_TIMEOUT` | `120` | `generate` browser explore budget in seconds. |
 
 ## Development
 
@@ -183,7 +185,7 @@ pipeline:
 # Build
 zig build
 
-# Run tests (269 passing)
+# Run tests
 zig build test
 
 # Run with verbose output

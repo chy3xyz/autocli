@@ -69,6 +69,9 @@ const SharedState = struct {
     mutex: std.Io.Mutex,
     ws: ?*std.http.Server.WebSocket,
     ws_connected: bool,
+    /// Bumped each time an extension connects. Disconnect clears the slot
+    /// only when this generation is still current.
+    ws_generation: u64,
     next_id: u64,
     pending: std.StringHashMap(*ResponseWaiter),
     // Metrics
@@ -85,6 +88,7 @@ const SharedState = struct {
             .mutex = .init,
             .ws = null,
             .ws_connected = false,
+            .ws_generation = 0,
             .next_id = 1,
             .pending = std.StringHashMap(*ResponseWaiter).init(allocator),
             .start_time = std.Io.Timestamp.now(io, .real),
@@ -226,8 +230,11 @@ pub const Daemon = struct {
         var ws = try request.respondWebSocket(.{ .key = ws_key });
         try ws.flush(); // Send 101 Switching Protocols
 
-        // Register this WebSocket in shared state
+        // The newest extension owns the command slot. An older socket
+        // disconnecting must not clear a newer connection.
         self.state.mutex.lockUncancelable(self.io);
+        self.state.ws_generation += 1;
+        const my_generation = self.state.ws_generation;
         self.state.ws = &ws;
         self.state.ws_connected = true;
         self.state.mutex.unlock(self.io);
@@ -237,8 +244,10 @@ pub const Daemon = struct {
 
         defer {
             self.state.mutex.lockUncancelable(self.io);
-            self.state.ws = null;
-            self.state.ws_connected = false;
+            if (self.state.ws_generation == my_generation) {
+                self.state.ws = null;
+                self.state.ws_connected = false;
+            }
             self.state.mutex.unlock(self.io);
             stdout.writeStreamingAll(self.io, "[daemon] Extension disconnected\n") catch {};
         }

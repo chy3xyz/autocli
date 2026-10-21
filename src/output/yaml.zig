@@ -2,7 +2,7 @@ const std = @import("std");
 const json = @import("std").json;
 
 /// Render JSON value as YAML string.
-/// Note: Zig 0.16.0 doesn't have a native YAML library, so we convert JSON→YAML manually.
+/// Note: Zig 0.17.0 doesn't have a native YAML library, so we convert JSON→YAML manually.
 pub fn renderYaml(allocator: std.mem.Allocator, data: json.Value, cols: ?[]const []const u8) ![]const u8 {
     _ = cols;
     return try jsonValueToYaml(allocator, data, 0);

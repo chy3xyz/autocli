@@ -1148,6 +1148,8 @@ pub fn explore(
     errdefer manifest.deinit(allocator);
 
     const p = page orelse return manifest;
+    const started = std.Io.Timestamp.now(io, .real);
+    const budget_ns: i64 = @intCast(options.timeout * std.time.ns_per_s);
 
     // Step 1: Navigate
     p.goto(url, null) catch |err| {
@@ -1160,12 +1162,13 @@ pub fn explore(
     // Step 2: Auto-scroll
     const max_scrolls = @min(options.max_scrolls, 3);
     for (0..max_scrolls) |_| {
+        if (std.Io.Timestamp.now(io, .real).nanoseconds - started.nanoseconds > budget_ns) return manifest;
         _ = p.evaluate("window.scrollBy(0, window.innerHeight * 0.7)") catch {};
         std.Io.sleep(io, .fromMilliseconds(1500), .real) catch {};
     }
 
     // Step 2.5: Interactive fuzzing
-    if (options.auto_fuzz) {
+    if (options.auto_fuzz and std.Io.Timestamp.now(io, .real).nanoseconds - started.nanoseconds <= budget_ns) {
         _ = p.evaluate(INTERACT_FUZZ_JS) catch {};
         std.Io.sleep(io, .fromMilliseconds(2000), .real) catch {};
     }

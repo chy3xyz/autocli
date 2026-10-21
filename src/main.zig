@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const json = @import("std").json;
 const CliArgs = @import("cli").CliArgs;
 const parseArgs = @import("cli").parseArgs;
@@ -36,6 +37,26 @@ const SandboxPage = @import("browser").SandboxPage;
 var shutdown_requested = false;
 
 fn setupSignalHandlers() void {
+    if (builtin.os.tag == .windows) {
+        const win = struct {
+            extern "kernel32" fn SetConsoleCtrlHandler(
+                handler: ?*const fn (ctrl_type: u32) callconv(.winapi) i32,
+                add: i32,
+            ) callconv(.winapi) i32;
+
+            fn handler(ctrl_type: u32) callconv(.winapi) i32 {
+                // CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT
+                if (ctrl_type == 0 or ctrl_type == 1 or ctrl_type == 2) {
+                    @atomicStore(bool, &shutdown_requested, true, .release);
+                    return 1;
+                }
+                return 0;
+            }
+        };
+        _ = win.SetConsoleCtrlHandler(&win.handler, 1);
+        return;
+    }
+
     const SIGTERM: std.posix.SIG = @enumFromInt(15);
     const SIGINT: std.posix.SIG = @enumFromInt(2);
     var sa_term: std.posix.Sigaction = .{
@@ -69,12 +90,15 @@ pub fn main(init: std.process.Init) !void {
 
     setupSignalHandlers();
 
-    // Convert raw args to slice of strings
+    // Windows command lines are WTF-16. The iterator yields WTF-8 on every OS.
+    var arg_iter = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
+    defer arg_iter.deinit();
+    _ = arg_iter.next();
     var args_list: [16][]const u8 = undefined;
     var count: usize = 0;
-    for (init.minimal.args.vector[1..]) |arg| {
+    while (arg_iter.next()) |arg| {
         if (count >= 16) break;
-        args_list[count] = std.mem.sliceTo(arg, 0);
+        args_list[count] = arg;
         count += 1;
     }
 
@@ -114,7 +138,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Handle --help / no site given
     if (args.site == null) {
-        try printUsage(io);
+        try printUsage(io, environ_map);
         return;
     }
 
@@ -207,11 +231,14 @@ fn executeSiteCommand(io: std.Io, gpa: std.mem.Allocator, args: CliArgs, environ
     // 1. ~/.autocli/adapters/{site}/{command}.yaml
     // 2. ~/.autocli/adapters/{site}_{command}.yaml
     // 3. adapters/{site}/{command}.yaml
-    const home = environ_map.get("HOME") orelse ".";
-
-    const user_path1 = try std.fmt.allocPrint(gpa, "{s}/.autocli/adapters/{s}/{s}.yaml", .{ home, site, command });
+    const home = core.env.homeDir(environ_map) orelse ".";
+    const nested_name = try std.fmt.allocPrint(gpa, "{s}.yaml", .{command});
+    defer gpa.free(nested_name);
+    const flat_name = try std.fmt.allocPrint(gpa, "{s}_{s}.yaml", .{ site, command });
+    defer gpa.free(flat_name);
+    const user_path1 = try std.fs.path.join(gpa, &.{ home, ".autocli", "adapters", site, nested_name });
     defer gpa.free(user_path1);
-    const user_path2 = try std.fmt.allocPrint(gpa, "{s}/.autocli/adapters/{s}_{s}.yaml", .{ home, site, command });
+    const user_path2 = try std.fs.path.join(gpa, &.{ home, ".autocli", "adapters", flat_name });
     defer gpa.free(user_path2);
     const builtin_path = try std.fmt.allocPrint(gpa, "adapters/{s}/{s}.yaml", .{ site, command });
     defer gpa.free(builtin_path);
@@ -331,7 +358,9 @@ fn executeSiteCommand(io: std.Io, gpa: std.mem.Allocator, args: CliArgs, environ
                 maybe_page = sandbox_storage.?.makeIPage();
             } else {
                 if (verbose) logVerbose(io, "connecting browser...", .{});
-                var bridge = BrowserBridge.init(gpa, io, 19825);
+                var bridge = BrowserBridge.init(gpa, io, getDaemonPort(environ_map));
+                bridge.connect_timeout_ms = core.env.secondsToMs(environ_map, &core.env.connect_timeout_names, 30);
+                bridge.cdp_endpoint = core.env.first(environ_map, &core.env.cdp_endpoint_names);
                 maybe_page = try bridge.connect();
                 if (verbose) logVerbose(io, "browser connected", .{});
             }
@@ -417,12 +446,66 @@ fn tryLoadFile(io: std.Io, gpa: std.mem.Allocator, path: []const u8) ?[]u8 {
 
 fn printVersion(io: std.Io) !void {
     const stdout = std.Io.File.stdout();
-    try stdout.writeStreamingAll(io, "autocli 0.1.0 (zig 0.17.0-dev)\n");
+    try stdout.writeStreamingAll(io, "autocli 0.1.0 (zig 0.17.0)\n");
 }
 
-fn printUsage(io: std.Io) !void {
+fn printUsage(io: std.Io, environ_map: *const std.process.Environ.Map) !void {
     const stdout = std.Io.File.stdout();
-    try stdout.writeStreamingAll(io,
+    const i18n = @import("cli").i18n;
+    const text = switch (i18n.language(environ_map)) {
+        .zh =>
+        \\autocli - AI 命令行工具
+        \\
+        \\用法: autocli <站点> <命令> [选项]
+        \\      autocli <内置命令> [选项]
+        \\
+        \\内置命令:
+        \\  list        列出站点和命令
+        \\  doctor      运行诊断
+        \\  completion  生成 shell 补全
+        \\  help        显示帮助
+        \\
+        \\选项:
+        \\  -h, --help       显示帮助
+        \\  -v, --version    显示版本
+        \\  -f, --format     输出格式: table, json, yaml, csv, md
+        \\  -l, --limit      限制结果数量
+        \\  -o, --output     把输出写入文件
+        \\
+        \\示例:
+        \\  autocli list
+        \\  autocli doctor
+        \\  autocli hackernews top --limit 10
+        \\  autocli hackernews top --format json
+        \\
+        ,
+        .ja =>
+        \\autocli - AI コマンドラインツール
+        \\
+        \\使い方: autocli <サイト> <コマンド> [オプション]
+        \\        autocli <組み込み> [オプション]
+        \\
+        \\組み込み:
+        \\  list        サイトとコマンドを表示
+        \\  doctor      診断を実行
+        \\  completion  シェル補完を生成
+        \\  help        ヘルプを表示
+        \\
+        \\オプション:
+        \\  -h, --help       ヘルプを表示
+        \\  -v, --version    バージョンを表示
+        \\  -f, --format     出力形式: table, json, yaml, csv, md
+        \\  -l, --limit      件数を制限
+        \\  -o, --output     ファイルへ書き出す
+        \\
+        \\例:
+        \\  autocli list
+        \\  autocli doctor
+        \\  autocli hackernews top --limit 10
+        \\  autocli hackernews top --format json
+        \\
+        ,
+        .en =>
         \\autocli - AI-driven CLI tool
         \\
         \\Usage: autocli <site> <command> [options]
@@ -447,7 +530,9 @@ fn printUsage(io: std.Io) !void {
         \\  autocli hackernews top --limit 10
         \\  autocli hackernews top --format json
         \\
-    );
+        ,
+    };
+    try stdout.writeStreamingAll(io, text);
 }
 
 const ANSI_RED = "\x1b[31m";
@@ -483,11 +568,5 @@ fn getDaemonPort(environ_map: *const std.process.Environ.Map) u16 {
 }
 
 fn getCommandTimeoutMs(environ_map: *const std.process.Environ.Map) u64 {
-    if (environ_map.get("AUTOCLI_BROWSER_COMMAND_TIMEOUT")) |val| {
-        return std.fmt.parseInt(u64, val, 10) catch 120;
-    }
-    if (environ_map.get("OPENCLI_BROWSER_COMMAND_TIMEOUT")) |val| {
-        return std.fmt.parseInt(u64, val, 10) catch 120;
-    }
-    return 120_000; // 120 seconds default
+    return core.env.secondsToMs(environ_map, &core.env.command_timeout_names, 120);
 }

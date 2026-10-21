@@ -48,8 +48,8 @@ const RawLlmConfig = struct {
 
 /// Get config file path: ~/.autocli/config.json
 pub fn configPath(gpa: std.mem.Allocator, environ_map: *const std.process.Environ.Map) ![]const u8 {
-    const home = environ_map.get("HOME") orelse environ_map.get("USERPROFILE") orelse ".";
-    return std.fmt.allocPrint(gpa, "{s}/.autocli/config.json", .{home});
+    const home = @import("core").env.homeDir(environ_map) orelse ".";
+    return std.fs.path.join(gpa, &.{ home, ".autocli", "config.json" });
 }
 
 /// Load config from ~/.autocli/config.json
@@ -84,8 +84,8 @@ pub fn saveConfig(gpa: std.mem.Allocator, io: std.Io, environ_map: *const std.pr
     defer gpa.free(path);
 
     // Ensure ~/.autocli directory exists
-    const home = environ_map.get("HOME") orelse environ_map.get("USERPROFILE") orelse ".";
-    const dir_path = try std.fmt.allocPrint(gpa, "{s}/.autocli", .{home});
+    const home = @import("core").env.homeDir(environ_map) orelse ".";
+    const dir_path = try std.fs.path.join(gpa, &.{ home, ".autocli" });
     defer gpa.free(dir_path);
     std.Io.Dir.cwd().createDirPath(io, dir_path) catch |err| {
         std.log.warn("failed to create config directory: {s}", .{@errorName(err)});

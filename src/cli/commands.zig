@@ -45,8 +45,19 @@ pub fn runBuiltin(
 fn runList(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, ctx: BuiltinContext) !void {
     const stdout = std.Io.File.stdout();
 
-    try stdout.writeStreamingAll(io, "autocli - Available sites and commands\n\n");
-    try stdout.writeStreamingAll(io, "Usage: autocli list [site]\n\n");
+    const i18n = @import("i18n.zig");
+    try stdout.writeStreamingAll(io, i18n.t(
+        "autocli - 可用站点与命令\n\n",
+        "autocli - Available sites and commands\n\n",
+        "autocli - 利用できるサイトとコマンド\n\n",
+        ctx.environ_map,
+    ));
+    try stdout.writeStreamingAll(io, i18n.t(
+        "用法: autocli list [站点]\n\n",
+        "Usage: autocli list [site]\n\n",
+        "使い方: autocli list [サイト]\n\n",
+        ctx.environ_map,
+    ));
 
     // Use fast metadata path: no YAML parsing for list command
     const builtin_metas = @import("discovery").listBuiltinAdapters();
@@ -147,30 +158,31 @@ fn runList(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, ctx: BuiltinContex
 fn runDoctor(io: std.Io, gpa: std.mem.Allocator, environ_map: *const std.process.Environ.Map, ctx: BuiltinContext) !void {
     const stdout = std.Io.File.stdout();
 
-    try stdout.writeStreamingAll(io, "autocli diagnostics\n\n");
+    const i18n = @import("i18n.zig");
+    try stdout.writeStreamingAll(io, i18n.t("autocli 诊断\n\n", "autocli diagnostics\n\n", "autocli 診断\n\n", environ_map));
 
     // 1. Check Chrome/Chromium
     const t1 = std.Io.Timestamp.now(io, .real);
     const chrome_ok = try checkChromeRunning(io, gpa);
-    try printCheckTimed(io, stdout, "Chrome/Chromium", chrome_ok, elapsedMs(io, t1));
+    try printCheckTimed(io, stdout, i18n.t("Chrome/Chromium", "Chrome/Chromium", "Chrome/Chromium", environ_map), chrome_ok, elapsedMs(io, t1));
 
     // 2. Check daemon reachable
     const port = getDaemonPort(environ_map);
     const t2 = std.Io.Timestamp.now(io, .real);
     const daemon_ok = try checkDaemonRunning(io, gpa, port);
-    try printCheckTimed(io, stdout, "Daemon running", daemon_ok, elapsedMs(io, t2));
+    try printCheckTimed(io, stdout, i18n.t("Daemon 运行中", "Daemon running", "Daemon 稼働中", environ_map), daemon_ok, elapsedMs(io, t2));
 
     // 3. Check extension connected
     if (daemon_ok) {
         const t3 = std.Io.Timestamp.now(io, .real);
         const ext_ok = try checkExtensionConnected(io, gpa, port);
-        try printCheckTimed(io, stdout, "Chrome extension connected", ext_ok, elapsedMs(io, t3));
+        try printCheckTimed(io, stdout, i18n.t("Chrome 扩展已连接", "Chrome extension connected", "Chrome 拡張が接続済み", environ_map), ext_ok, elapsedMs(io, t3));
     } else {
-        try printCheck(io, stdout, "Chrome extension connected", false);
+        try printCheck(io, stdout, i18n.t("Chrome 扩展已连接", "Chrome extension connected", "Chrome 拡張が接続済み", environ_map), false);
     }
 
     // 4. Check external CLIs
-    try stdout.writeStreamingAll(io, "\nExternal CLIs:\n");
+    try stdout.writeStreamingAll(io, i18n.t("\n外部 CLI:\n", "\nExternal CLIs:\n", "\n外部 CLI:\n", environ_map));
     const externals = &[_][]const u8{ "gh", "docker", "kubectl", "obsidian", "readwise", "gws" };
     for (externals) |name| {
         const ok = try isBinaryInstalled(io, gpa, name);
@@ -178,7 +190,7 @@ fn runDoctor(io: std.Io, gpa: std.mem.Allocator, environ_map: *const std.process
     }
 
     // 5. Check CDP endpoint
-    if (environ_map.get("AUTOCLI_CDP_ENDPOINT")) |endpoint| {
+    if (@import("core").env.first(environ_map, &@import("core").env.cdp_endpoint_names)) |endpoint| {
         try stdout.writeStreamingAll(io, "\nCDP endpoint: ");
         try stdout.writeStreamingAll(io, endpoint);
         try stdout.writeStreamingAll(io, "\n");
@@ -199,15 +211,15 @@ fn runDoctor(io: std.Io, gpa: std.mem.Allocator, environ_map: *const std.process
     }
 
     // 7. Config check
-    if (environ_map.get("HOME")) |home| {
-        const config_path = try std.fmt.allocPrint(gpa, "{s}/.autocli/config.json", .{home});
+    if (@import("core").env.homeDir(environ_map)) |home| {
+        const config_path = try std.fs.path.join(gpa, &.{ home, ".autocli", "config.json" });
         defer gpa.free(config_path);
         var config_exists = false;
         if (std.Io.Dir.cwd().openFile(io, config_path, .{})) |f| {
             f.close(io);
             config_exists = true;
         } else |_| {}
-        try printCheck(io, stdout, "Config file", config_exists);
+        try printCheck(io, stdout, i18n.t("配置文件", "Config file", "設定ファイル", environ_map), config_exists);
     }
 
     // 8. Adapter validation (sample built-ins)
@@ -267,7 +279,7 @@ fn elapsedMs(io: std.Io, start: std.Io.Timestamp) u64 {
 }
 
 fn getDaemonPort(environ_map: *const std.process.Environ.Map) u16 {
-    if (environ_map.get("AUTOCLI_DAEMON_PORT")) |port_str| {
+    if (@import("core").env.first(environ_map, &@import("core").env.daemon_port_names)) |port_str| {
         return std.fmt.parseInt(u16, port_str, 10) catch 19825;
     }
     return 19825;
@@ -315,7 +327,8 @@ fn checkChromeRunning(io: std.Io, gpa: std.mem.Allocator) !bool {
             .stderr = .ignore,
         }) catch return false;
         var buf: [4096]u8 = undefined;
-        const n = child.stdout.?.read(io, &buf) catch 0;
+        var iov = [_][]u8{&buf};
+        const n = child.stdout.?.readStreaming(io, &iov) catch 0;
         _ = child.wait(io) catch |err| {
             std.log.warn("child.wait failed: {s}", .{@errorName(err)});
         };
@@ -478,8 +491,67 @@ fn runCompletion(io: std.Io, args: CliArgs) !void {
 fn runHelp(io: std.Io, environ_map: *const std.process.Environ.Map) !void {
     const stdout = std.Io.File.stdout();
     const i18n = @import("i18n.zig");
-    try stdout.writeStreamingAll(io,
-        \\autocli - AI-driven CLI tool / AI 命令行工具
+    const text = switch (i18n.language(environ_map)) {
+        .zh =>
+        \\autocli - AI 命令行工具
+        \\
+        \\用法: autocli <站点> <命令> [选项]
+        \\
+        \\选项:
+        \\  -h, --help       显示帮助
+        \\  -v, --version    显示版本
+        \\  -f, --format     输出格式: table, json, yaml, csv, md
+        \\  -l, --limit      限制结果数量
+        \\  -o, --output     把输出写入文件
+        \\
+        \\内置命令:
+        \\  autocli list              列出站点和命令
+        \\  autocli doctor            运行诊断
+        \\  autocli completion        生成 shell 补全
+        \\  autocli help              显示帮助
+        \\  autocli auth <token>      配置 AI token
+        \\  autocli search <query>    搜索适配器
+        \\  autocli generate <url>    从 URL 生成适配器
+        \\  autocli read <url>        读取文章内容
+        \\
+        \\示例:
+        \\  autocli hackernews top --limit 10
+        \\  autocli hackernews top --format json
+        \\  autocli reddit hot --limit 5 --format yaml
+        \\  autocli read https://example.com/article --format markdown
+        \\
+        ,
+        .ja =>
+        \\autocli - AI コマンドラインツール
+        \\
+        \\使い方: autocli <サイト> <コマンド> [オプション]
+        \\
+        \\オプション:
+        \\  -h, --help       ヘルプを表示
+        \\  -v, --version    バージョンを表示
+        \\  -f, --format     出力形式: table, json, yaml, csv, md
+        \\  -l, --limit      件数を制限
+        \\  -o, --output     ファイルへ書き出す
+        \\
+        \\組み込みコマンド:
+        \\  autocli list              サイトとコマンドを表示
+        \\  autocli doctor            診断を実行
+        \\  autocli completion        シェル補完を生成
+        \\  autocli help              ヘルプを表示
+        \\  autocli auth <token>      AI トークンを設定
+        \\  autocli search <query>    アダプタを検索
+        \\  autocli generate <url>    URL からアダプタを生成
+        \\  autocli read <url>        記事を読み取る
+        \\
+        \\例:
+        \\  autocli hackernews top --limit 10
+        \\  autocli hackernews top --format json
+        \\  autocli reddit hot --limit 5 --format yaml
+        \\  autocli read https://example.com/article --format markdown
+        \\
+        ,
+        .en =>
+        \\autocli - AI-driven CLI tool
         \\
         \\Usage: autocli <site> <command> [options]
         \\
@@ -506,9 +578,9 @@ fn runHelp(io: std.Io, environ_map: *const std.process.Environ.Map) !void {
         \\  autocli reddit hot --limit 5 --format yaml
         \\  autocli read https://example.com/article --format markdown
         \\
-    );
-    _ = i18n;
-    _ = environ_map;
+        ,
+    };
+    try stdout.writeStreamingAll(io, text);
 }
 
 fn runAuth(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *const std.process.Environ.Map) !void {
@@ -527,7 +599,13 @@ fn runAuth(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *cons
         defer config.deinit(gpa);
 
         try ai_config.saveConfig(gpa, io, environ_map, &config);
-        try stdout.writeStreamingAll(io, "Token saved to ~/.autocli/config.json\n");
+        const i18n = @import("i18n.zig");
+        try stdout.writeStreamingAll(io, i18n.t(
+            "Token 已保存到 ~/.autocli/config.json\n",
+            "Token saved to ~/.autocli/config.json\n",
+            "トークンを ~/.autocli/config.json に保存しました\n",
+            environ_map,
+        ));
     } else {
         var config = ai_config.loadConfig(gpa, io, environ_map) catch ai_config.Config{};
         defer config.deinit(gpa);
@@ -542,7 +620,13 @@ fn runAuth(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *cons
             }
             try stdout.writeStreamingAll(io, "\n");
         } else {
-            try stdout.writeStreamingAll(io, "No token configured. Run: autocli auth <token>\n");
+            const i18n = @import("i18n.zig");
+            try stdout.writeStreamingAll(io, i18n.t(
+                "尚未配置 token。请运行: autocli auth <token>\n",
+                "No token configured. Run: autocli auth <token>\n",
+                "トークンが未設定です。実行: autocli auth <token>\n",
+                environ_map,
+            ));
         }
     }
 
@@ -553,7 +637,13 @@ fn runSearch(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *co
     const ai_client = @import("ai").client;
 
     const query = args.command orelse {
-        try stdout.writeStreamingAll(io, "Usage: autocli search <url-pattern>\n");
+        const i18n = @import("i18n.zig");
+        try stdout.writeStreamingAll(io, i18n.t(
+            "用法: autocli search <url>\n",
+            "Usage: autocli search <url-pattern>\n",
+            "使い方: autocli search <url>\n",
+            environ_map,
+        ));
         return;
     };
 
@@ -561,7 +651,13 @@ fn runSearch(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *co
     defer config.deinit(gpa);
 
     const token = config.autocli_token orelse {
-        try stdout.writeStreamingAll(io, "No token configured. Run: autocli auth <token>\n");
+        const i18n = @import("i18n.zig");
+        try stdout.writeStreamingAll(io, i18n.t(
+            "尚未配置 token。请运行: autocli auth <token>\n",
+            "No token configured. Run: autocli auth <token>\n",
+            "トークンが未設定です。実行: autocli auth <token>\n",
+            environ_map,
+        ));
         return;
     };
 
@@ -582,7 +678,13 @@ fn runGenerate(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *
     const ai_generate = @import("ai").generate;
 
     const url = args.command orelse {
-        try stdout.writeStreamingAll(io, "Usage: autocli generate <url> [goal]\n");
+        const i18n = @import("i18n.zig");
+        try stdout.writeStreamingAll(io, i18n.t(
+            "用法: autocli generate <url> [目标]\n",
+            "Usage: autocli generate <url> [goal]\n",
+            "使い方: autocli generate <url> [目的]\n",
+            environ_map,
+        ));
         return;
     };
 
@@ -590,7 +692,13 @@ fn runGenerate(io: std.Io, args: CliArgs, gpa: std.mem.Allocator, environ_map: *
     defer config.deinit(gpa);
 
     const token = config.autocli_token orelse {
-        try stdout.writeStreamingAll(io, "No token configured. Run: autocli auth <token>\n");
+        const i18n = @import("i18n.zig");
+        try stdout.writeStreamingAll(io, i18n.t(
+            "尚未配置 token。请运行: autocli auth <token>\n",
+            "No token configured. Run: autocli auth <token>\n",
+            "トークンが未設定です。実行: autocli auth <token>\n",
+            environ_map,
+        ));
         return;
     };
 

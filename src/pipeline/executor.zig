@@ -41,7 +41,7 @@ pub fn cloneJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value
         .string => |s| return .{ .string = try allocator.dupe(u8, s) },
         .number_string => |s| return .{ .number_string = try allocator.dupe(u8, s) },
         .array => |arr| {
-            var items = std.ArrayListUnmanaged(json.Value){ .items = &.{}, .capacity = 0 };
+            var items: std.ArrayListUnmanaged(json.Value) = .empty;
             errdefer {
                 for (items.items) |item| {
                     freeJsonValue(allocator, item);
@@ -52,7 +52,7 @@ pub fn cloneJsonValue(allocator: std.mem.Allocator, val: json.Value) !json.Value
                 const cloned = try cloneJsonValue(allocator, item);
                 try items.append(allocator, cloned);
             }
-            return .{ .array = std.array_list.Managed(json.Value){ .items = items.items, .capacity = items.capacity, .allocator = allocator } };
+            return .{ .array = items.toManaged(allocator) };
         },
         .object => |obj| {
             var new_obj = json.ObjectMap.init(allocator, &[_][]const u8{}, &[_]json.Value{}) catch return error.OutOfMemory;

@@ -2,7 +2,7 @@
 
 **评估时间**: 2026-05-21
 **Rust 参考版本**: v0.3.2
-**Zig 版本**: 0.16.0
+**Zig 版本**: 0.17.0
 **对齐度**: 98%
 
 ---
@@ -298,7 +298,7 @@ Executed in   48.15 secs    # Rust 版（冷缓存）
 | `generate` | ✅ | ✅ | ✅ | `autocli generate <url>` explore + AI 生成 YAML |
 | `generate --ai` | ✅ | ✅ | ✅ | LLM API 调用完整 |
 | `cascade` | ✅ | ✅ | ✅ | PUBLIC→COOKIE→HEADER 策略探测（JS fetch probe） |
-| `cascade` INTERCEPT/UI | ✅ | ⚠️ | 部分 | 需要 site-specific 实现 |
+| `cascade` INTERCEPT/UI | ✅ | ✅ | ✅ | intercept 看已捕获请求；ui 看页面正文和列表节点 |
 
 ---
 
@@ -331,14 +331,14 @@ stdin/stdout/stderr 继承: ✅
 | `auth` | ✅ | ✅ | ✅ | `autocli auth <token>` 保存 token |
 | `search` | ✅ | ✅ | ✅ | `autocli search <url>` 调用 autocli.ai |
 | `generate` | ✅ | ✅ | ✅ | `autocli generate <url>` AI 生成适配器 |
-| `--version` | ✅ | ✅ | ✅ | 输出 "autocli 0.1.0 (zig 0.16.0)" |
+| `--version` | ✅ | ✅ | ✅ | 输出 "autocli 0.1.0 (zig 0.17.0)" |
 | `--format` | ✅ | ✅ | ✅ | table/json/yaml/csv/md |
 | `--limit` | ✅ | ✅ | ✅ |
 | `--output` 写文件 | ✅ | ✅ | ✅ | 支持写入指定文件路径 |
 | 动态子命令 (clap) | ✅ | ✅ | ✅ | 手动 site+command 分派; `--xxx=value` 格式解析 |
-| 环境变量超时 | ✅ | ✅ | ✅ | `AUTOCLI_BROWSER_COMMAND_TIMEOUT` |
+| 环境变量超时 | ✅ | ✅ | ✅ | 命令/连接/explore 超时按秒解析，`AUTOCLI_` 与 `OPENCLI_` 都认 |
 | 错误处理 | rich error | 彩色 | ✅ | `errorIcon`/`errorCode` + ANSI 颜色 |
-| i18n (中/英/日) | ✅ | ❌ | 无 |
+| i18n (中/英/日) | ✅ | ✅ | ✅ | `LANG` / `AUTOCLI_LANG`；帮助、用法、doctor |
 | 彩色错误输出 | ✅ | ✅ | 粗体 icon/code + 红色 message |
 
 ---

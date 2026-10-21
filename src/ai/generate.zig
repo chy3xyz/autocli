@@ -23,7 +23,8 @@ pub fn generateAdapter(
         // Perform browser exploration
         var did_explore = false;
         var explore_result: @import("mod.zig").ExploreResult = undefined;
-        if (@import("mod.zig").explore(gpa, io, p, url)) |er| {
+        const timeout_s = @import("core").env.seconds(environ_map, &@import("core").env.explore_timeout_names, 120);
+        if (@import("mod.zig").explore(gpa, io, p, url, timeout_s)) |er| {
             explore_result = er;
             did_explore = true;
         } else |err| {

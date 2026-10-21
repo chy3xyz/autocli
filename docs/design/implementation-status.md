@@ -150,15 +150,15 @@ Compare: Rust version was ~4.7 MB. Zig version is **5.5× smaller**.
 
 1. **Builtin adapters embedded** — 345 adapters from `adapters/` directory are compiled into the binary at build time via `build.zig`. Runtime filesystem loading from `adapters/` also works as fallback.
 
-2. **Async I/O not available** — Zig 0.17 removed async/await. All I/O is blocking. Parallel fetches require `std.Thread` (not yet implemented for pipeline steps).
+2. **Async I/O not available** — Zig 0.17 has no async/await. Per-item fetch runs up to 10 threads, each with its own `std.http.Client`, because the client is not thread-safe. Other pipeline steps stay sequential.
 
 3. **YAML parser is minimal** — Not spec-compliant. Handles the adapter subset (key-value, nested objects, arrays, multi-line strings). May fail on complex YAML features (anchors, merge keys, flow collections).
 
 4. **Template engine limitations** — No arithmetic expressions, no boolean logic (`&&`, `||`), no comparison operators in filter conditions. Filter expressions must be simple property checks or use built-in filters.
 
-5. **Single extension connection** — Daemon supports one WebSocket connection at a time. Multiple Chrome instances cannot connect simultaneously.
+5. **One active extension** — Several Chrome extensions can connect. The newest owns the command slot, and an older disconnect does not clear it. Commands are not fanned out to every extension.
 
-6. **No Windows support** — Tested on macOS and Linux only. Windows path handling and signal handling need verification.
+6. **Windows is compiled, not certified** — Ctrl+C uses `SetConsoleCtrlHandler`, and config paths use `USERPROFILE` plus `std.fs.path.join`. There is no Windows CI run.
 
 ---
 

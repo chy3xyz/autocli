@@ -129,6 +129,18 @@ pub fn build(b: *std.Build) void {
     });
     const run_output_tests = b.addRunArtifact(output_tests);
     test_step.dependOn(&run_output_tests.step);
+    const i18n_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/i18n.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const i18n_tests = b.addTest(.{
+        .name = "i18n_tests",
+        .root_module = i18n_mod,
+    });
+    const run_i18n_tests = b.addRunArtifact(i18n_tests);
+    test_step.dependOn(&run_i18n_tests.step);
+
     // Discovery 模块测试
     const discovery_tests = b.addTest(.{
         .name = "discovery_tests",

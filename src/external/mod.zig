@@ -119,8 +119,8 @@ pub const ExternalCliRegistry = struct {
     }
 
     pub fn loadUserClis(self: *ExternalCliRegistry, io: std.Io, environ_map: *const std.process.Environ.Map) void {
-        const home = environ_map.get("HOME") orelse return;
-        const path = std.fmt.allocPrint(self.allocator, "{s}/.autocli/external-clis.yaml", .{home}) catch return;
+        const home = @import("core").env.homeDir(environ_map) orelse return;
+        const path = std.fs.path.join(self.allocator, &.{ home, ".autocli", "external-clis.yaml" }) catch return;
         defer self.allocator.free(path);
 
         const content = std.Io.Dir.cwd().readFileAlloc(io, path, self.allocator, std.Io.Limit.limited(1024 * 1024)) catch return;

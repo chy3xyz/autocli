@@ -84,8 +84,9 @@ pub fn explore(
     io: std.Io,
     page: ?IPage,
     url: []const u8,
+    timeout_s: u64,
 ) CliError!ExploreResult {
-    const options = ExploreOptions{};
+    const options = ExploreOptions{ .timeout = timeout_s };
     var manifest = try explore_mod.explore(allocator, io, page, url, options);
     defer manifest.deinit(allocator);
 
@@ -249,7 +250,7 @@ pub fn generateAdapter(
     url: []const u8,
     goal: ?[]const u8,
 ) CliError!AdapterCandidate {
-    const result = try explore(allocator, io, page, url);
+    const result = try explore(allocator, io, page, url, 120);
     defer result.deinit(allocator);
 
     const candidates = try synthesize(allocator, io, result, goal);
